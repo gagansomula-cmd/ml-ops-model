@@ -41,7 +41,7 @@ def mse(y_true: List[float], y_pred: List[float]) -> float:
 
 def generate_training_data() -> tuple[List[float], List[float]]:
     x_values = [float(i) for i in range(1, 21)]
-    noise = [0.3, -0.1, 0.2, -0.2, 0.1, -0.3, 0.2, -0.2, 0.1, -0.1, 0.3, -0.2, 0.2, -0.3, 0.1, -0.1, 0.2, -0.2, 0.1, -0.1]
+    noise = [((i % 6) - 3) * 0.1 for i in range(len(x_values))]
     y_values = [2.0 * x + 3.0 + noise[i] for i, x in enumerate(x_values)]
     return x_values, y_values
 
