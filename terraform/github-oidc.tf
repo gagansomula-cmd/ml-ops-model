@@ -52,6 +52,8 @@ data "aws_iam_policy_document" "github_actions_policy" {
       "iam:PassRole",
       "iam:CreateRole",
       "iam:DeleteRole",
+      "iam:TagRole",
+      "iam:UntagRole",
       "iam:AttachRolePolicy",
       "iam:DetachRolePolicy",
       "iam:PutRolePolicy",
@@ -60,6 +62,10 @@ data "aws_iam_policy_document" "github_actions_policy" {
       "iam:DeleteInstanceProfile",
       "iam:AddRoleToInstanceProfile",
       "iam:RemoveRoleFromInstanceProfile",
+      "iam:CreateOpenIDConnectProvider",
+      "iam:DeleteOpenIDConnectProvider",
+      "iam:GetOpenIDConnectProvider",
+      "iam:ListOpenIDConnectProviders",
       "s3:*",
       "logs:*",
       "autoscaling:*",
@@ -71,11 +77,18 @@ data "aws_iam_policy_document" "github_actions_policy" {
   statement {
     effect = "Allow"
     actions = [
+      "dynamodb:CreateTable",
+      "dynamodb:DeleteTable",
+      "dynamodb:DescribeTable",
       "dynamodb:PutItem",
       "dynamodb:GetItem",
-      "dynamodb:DeleteItem"
+      "dynamodb:DeleteItem",
+      "dynamodb:UpdateTimeToLive"
     ]
-    resources = ["arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/terraform-locks"]
+    resources = [
+      "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/terraform-locks",
+      "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/terraform-locks/*"
+    ]
   }
 }
 
@@ -97,9 +110,9 @@ output "github_actions_role_arn" {
 output "github_actions_setup" {
   description = "GitHub Actions OIDC setup information"
   value = {
-    role_arn        = aws_iam_role.github_actions.arn
-    oidc_provider   = aws_iam_openid_connect_provider.github.arn
-    account_id      = data.aws_caller_identity.current.account_id
-    trust_policy    = "repo:${var.github_repository}:ref:refs/heads/${var.github_branch}"
+    role_arn      = aws_iam_role.github_actions.arn
+    oidc_provider = aws_iam_openid_connect_provider.github.arn
+    account_id    = data.aws_caller_identity.current.account_id
+    trust_policy  = "repo:${var.github_repository}:ref:refs/heads/${var.github_branch}"
   }
 }
