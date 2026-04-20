@@ -5,6 +5,10 @@ resource "aws_iam_openid_connect_provider" "github" {
   thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
 
   tags = var.tags
+
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 # Trust policy for GitHub Actions

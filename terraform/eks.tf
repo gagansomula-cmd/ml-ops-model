@@ -51,6 +51,10 @@ resource "aws_eks_cluster" "main" {
   ]
 
   tags = var.tags
+
+  lifecycle {
+    ignore_changes = [version]
+  }
 }
 
 resource "aws_iam_role" "node" {
