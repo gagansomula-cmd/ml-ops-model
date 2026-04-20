@@ -7,7 +7,7 @@ import argparse
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List
+from typing import List
 
 
 @dataclass
@@ -15,7 +15,7 @@ class LinearRegressionGD:
     weight: float = 0.0
     bias: float = 0.0
 
-    def predict(self, x_values: Iterable[float]) -> List[float]:
+    def predict(self, x_values: List[float]) -> List[float]:
         return [self.weight * x + self.bias for x in x_values]
 
     def fit(self, x_values: List[float], y_values: List[float], lr: float, epochs: int) -> None:
