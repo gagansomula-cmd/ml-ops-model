@@ -1,0 +1,80 @@
+name: Terraform Deploy with OIDC
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform.yml'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./terraform
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActionsRole
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: '~> 1.6'
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        run: terraform init
+        env:
+          AWS_REGION: us-east-1
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+        env:
+          AWS_REGION: us-east-1
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+        env:
+          AWS_REGION: us-east-1
+
+      - name: Get EKS Cluster Endpoint
+        id: eks
+        run: |
+          CLUSTER_NAME=$(terraform output -raw cluster_name)
+          ENDPOINT=$(aws eks describe-cluster --name $CLUSTER_NAME --region us-east-1 --query cluster.endpoint --output text)
+          echo "cluster_endpoint=$ENDPOINT" >> $GITHUB_OUTPUT
+
+      - name: Update kubeconfig
+        run: |
+          CLUSTER_NAME=$(terraform output -raw cluster_name)
+          aws eks update-kubeconfig --name $CLUSTER_NAME --region us-east-1
+
+      - name: Verify EKS Deployment
+        run: |
+          kubectl get nodes
+          kubectl get pods -A
+
+      - name: Upload Terraform Plan
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: terraform-plan
+          path: terraform/tfplan
