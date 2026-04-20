@@ -110,10 +110,10 @@ resource "aws_iam_role_policy_attachment" "github_actions_ec2" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2FullAccess"
 }
 
-# Attach AWS managed policy for EKS full access
-resource "aws_iam_role_policy_attachment" "github_actions_eks" {
+# Attach AWS managed policy for PowerUser (includes EKS, but not IAM admin)
+resource "aws_iam_role_policy_attachment" "github_actions_poweruser" {
   role       = aws_iam_role.github_actions.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSFullAccess"
+  policy_arn = "arn:aws:iam::aws:policy/PowerUserAccess"
 }
 
 # Attach AWS managed policy for S3 full access
