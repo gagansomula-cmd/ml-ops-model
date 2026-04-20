@@ -39,9 +39,10 @@ def mse(y_true: List[float], y_pred: List[float]) -> float:
     return sum((y_true[i] - y_pred[i]) ** 2 for i in range(n)) / n
 
 
-def generate_training_data() -> tuple[List[float], List[float]]:
+def generate_synthetic_training_data() -> tuple[List[float], List[float]]:
     x_values = [float(i) for i in range(1, 21)]
-    noise = [((i % 6) - 3) * 0.1 for i in range(len(x_values))]
+    base_noise_values = [-0.3, -0.2, -0.1, 0.0, 0.1, 0.2]
+    noise = [base_noise_values[i % len(base_noise_values)] for i in range(len(x_values))]
     y_values = [2.0 * x + 3.0 + noise[i] for i, x in enumerate(x_values)]
     return x_values, y_values
 
@@ -62,7 +63,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    x_values, y_values = generate_training_data()
+    x_values, y_values = generate_synthetic_training_data()
     model = LinearRegressionGD()
     model.fit(x_values, y_values, lr=args.learning_rate, epochs=args.epochs)
 
