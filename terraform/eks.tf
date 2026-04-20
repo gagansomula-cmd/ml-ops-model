@@ -39,7 +39,7 @@ resource "aws_eks_cluster" "main" {
 
   vpc_config {
     subnet_ids              = concat(aws_subnet.private[*].id, aws_subnet.public[*].id)
-    security_groups         = [aws_security_group.cluster.id]
+    security_group_ids      = [aws_security_group.cluster.id]
     endpoint_private_access = true
     endpoint_public_access  = true
   }
@@ -124,7 +124,8 @@ resource "aws_eks_addon" "vpc_cni" {
   cluster_name             = aws_eks_cluster.main.name
   addon_name               = "vpc-cni"
   addon_version            = data.aws_eks_addon_version.vpc_cni.version
-  resolve_conflicts        = "OVERWRITE"
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
   service_account_role_arn = aws_iam_role.vpc_cni.arn
 
   tags = var.tags
@@ -136,7 +137,8 @@ resource "aws_eks_addon" "coredns" {
   cluster_name      = aws_eks_cluster.main.name
   addon_name        = "coredns"
   addon_version     = data.aws_eks_addon_version.coredns.version
-  resolve_conflicts = "OVERWRITE"
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
 
   tags = var.tags
 
@@ -147,7 +149,8 @@ resource "aws_eks_addon" "kube_proxy" {
   cluster_name      = aws_eks_cluster.main.name
   addon_name        = "kube-proxy"
   addon_version     = data.aws_eks_addon_version.kube_proxy.version
-  resolve_conflicts = "OVERWRITE"
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
 
   tags = var.tags
 

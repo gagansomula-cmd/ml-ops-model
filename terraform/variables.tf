@@ -13,7 +13,7 @@ variable "cluster_name" {
 variable "cluster_version" {
   description = "Kubernetes version"
   type        = string
-  default     = "1.28"
+  default     = "1.30"
 }
 
 variable "vpc_cidr" {
@@ -49,13 +49,13 @@ variable "node_instance_type" {
 variable "enable_kubeflow" {
   description = "Enable Kubeflow deployment"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "enable_kserve" {
   description = "Enable KServe deployment"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "kubeflow_version" {
