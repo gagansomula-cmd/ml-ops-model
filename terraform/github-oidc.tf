@@ -98,6 +98,30 @@ resource "aws_iam_role_policy" "github_actions" {
   policy = data.aws_iam_policy_document.github_actions_policy.json
 }
 
+# Attach AWS managed policy for IAM full access (required for EKS roles)
+resource "aws_iam_role_policy_attachment" "github_actions_iam" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = "arn:aws:iam::aws:policy/IAMFullAccess"
+}
+
+# Attach AWS managed policy for EC2 full access
+resource "aws_iam_role_policy_attachment" "github_actions_ec2" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2FullAccess"
+}
+
+# Attach AWS managed policy for EKS full access
+resource "aws_iam_role_policy_attachment" "github_actions_eks" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSFullAccess"
+}
+
+# Attach AWS managed policy for S3 full access
+resource "aws_iam_role_policy_attachment" "github_actions_s3" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+}
+
 # Get current AWS account ID
 data "aws_caller_identity" "current" {}
 
