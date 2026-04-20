@@ -1,0 +1,8 @@
+{
+  "model_type": "linear_regression_gradient_descent",
+  "weight": 2.0824640014059583,
+  "bias": 1.8128411635201331,
+  "train_mse": 0.3053365448318438,
+  "epochs": 2000,
+  "learning_rate": 0.001
+}

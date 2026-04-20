@@ -1,0 +1,170 @@
+# KServe Helm Chart Values
+# Reference: https://github.com/kserve/kserve/tree/master/hack/tf/helm
+
+namespace: kserve
+
+# KServe Controller Manager
+controller:
+  enabled: true
+  replicas: 1
+  image:
+    repository: ghcr.io/kserve/kserve-controller
+    tag: v0.11.0
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  service:
+    type: ClusterIP
+    port: 443
+
+# Model Server Runtimes
+runtimes:
+  sklearn:
+    enabled: true
+    image: ghcr.io/kserve/sklearnserver:v0.11.0
+  xgboost:
+    enabled: true
+    image: ghcr.io/kserve/xgbserver:v0.11.0
+  pytorch:
+    enabled: true
+    image: ghcr.io/kserve/pytorchserver:v0.11.0
+  tensorflow:
+    enabled: true
+    image: ghcr.io/kserve/tensorflow-serving:v0.11.0
+  onnx:
+    enabled: true
+    image: ghcr.io/kserve/onnxruntime:v0.11.0
+  triton:
+    enabled: true
+    image: ghcr.io/kserve/tritonserver:v0.11.0
+
+# Default model server runtime
+defaultModelServerRuntimeVersion: v0.11.0
+defaultModelStorageUri: s3://model-bucket
+
+# Model Storage Configuration
+storage:
+  # S3 configuration
+  s3:
+    accessKeyId:
+      name: aws-credentials
+      key: accessKeyId
+    secretAccessKey:
+      name: aws-credentials
+      key: secretAccessKey
+    useSSL: true
+    verifySSL: true
+    endpoint: s3.amazonaws.com
+    region: us-east-1
+
+# Service Account with IRSA
+serviceAccount:
+  create: true
+  name: kserve-sa
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/${cluster_name}-kserve-*"
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: kserve.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: kserve-tls
+      hosts:
+        - kserve.example.com
+
+# Network policy
+networkPolicy:
+  enabled: false
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Vertical Pod Autoscaler
+vpa:
+  enabled: false
+
+# RBAC
+rbac:
+  enabled: true
+
+# Pod Security
+podSecurityPolicy:
+  enabled: false
+
+# Resource quotas per namespace
+resourceQuota:
+  enabled: false
+
+# Limits per pod
+podLimits:
+  memory: 2Gi
+  cpu: 2000m
+
+# Requests per pod
+podRequests:
+  memory: 256Mi
+  cpu: 100m
+
+# KServe configuration
+config:
+  # Deployment mode: raw (InferenceService only) or serverless (Knative)
+  deploymentMode: raw
+  
+  # Enable canary deployments
+  canaryTrafficPercent: 10
+  
+  # Enable model explainability
+  explainability:
+    enabled: false
+  
+  # Enable model fairness
+  fairness:
+    enabled: false
+  
+  # Enable model drift detection
+  drift:
+    enabled: false
+
+# Autoscaling configuration
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Custom metrics server
+customMetrics:
+  enabled: false
+
+# Monitoring
+monitoring:
+  enabled: false  # Deploy Prometheus separately if needed
+  serviceMonitor:
+    enabled: false
+
+# Logging
+logging:
+  level: INFO
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL

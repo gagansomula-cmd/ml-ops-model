@@ -1,0 +1,232 @@
+# Example KServe InferenceService for Linear Regression Model
+# This example shows how to deploy your linear_regression_model.json using KServe
+
+---
+# Create namespace if not already created
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ml-models
+
+---
+# Secret for AWS S3 credentials (if needed)
+# Only create this if using private S3 buckets
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aws-credentials
+  namespace: ml-models
+type: Opaque
+stringData:
+  accessKeyId: "YOUR_AWS_ACCESS_KEY_ID"
+  secretAccessKey: "YOUR_AWS_SECRET_ACCESS_KEY"
+
+---
+# ServiceAccount with IAM role annotation
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kserve-models-sa
+  namespace: ml-models
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/ml-ops-cluster-kserve-*
+
+---
+# InferenceService for sklearn model
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: linear-regression
+  namespace: ml-models
+spec:
+  # Use the service account with IAM permissions
+  serviceAccountName: kserve-models-sa
+  
+  # Predictor configuration
+  predictor:
+    # Use sklearn runtime for scikit-learn models
+    sklearn:
+      # S3 path to your model
+      # Format: s3://bucket-name/path/to/model.pkl or .joblib
+      storageUri: s3://YOUR_BUCKET_NAME/linear_regression_model.json
+      
+      # Container resource requests and limits
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "512Mi"
+        limits:
+          cpu: "1"
+          memory: "1Gi"
+      
+      # Optional: Environment variables
+      env:
+        - name: STORAGE_URI
+          value: s3://YOUR_BUCKET_NAME
+      
+      # Optional: Model filename if different from default
+      # By default, KServe looks for 'model.pkl' or 'model.joblib'
+      # args:
+      #   - --model_name=linear_regression_model
+
+---
+# Optional: Transformer for preprocessing (if needed)
+# This allows custom preprocessing before sending to the predictor
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: linear-regression-with-transformer
+  namespace: ml-models
+spec:
+  serviceAccountName: kserve-models-sa
+  
+  # Transformer handles preprocessing
+  transformer:
+    containers:
+    - name: transformer
+      image: YOUR_REGISTRY/preprocessor:latest  # Your preprocessing image
+      ports:
+      - containerPort: 8080
+      resources:
+        requests:
+          cpu: "200m"
+          memory: "256Mi"
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
+  
+  # Predictor handles model inference
+  predictor:
+    sklearn:
+      storageUri: s3://YOUR_BUCKET_NAME/linear_regression_model.json
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "512Mi"
+        limits:
+          cpu: "1"
+          memory: "1Gi"
+
+---
+# Optional: Explainer for model interpretability
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: linear-regression-with-explainer
+  namespace: ml-models
+spec:
+  serviceAccountName: kserve-models-sa
+  
+  predictor:
+    sklearn:
+      storageUri: s3://YOUR_BUCKET_NAME/linear_regression_model.json
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "512Mi"
+        limits:
+          cpu: "1"
+          memory: "1Gi"
+  
+  # Optional: Add explainer for model interpretability
+  # explainer:
+  #   aix:
+  #     type: AnchorTabular
+  #     storageUri: s3://YOUR_BUCKET_NAME/explainer_config
+
+---
+# Optional: HorizontalPodAutoscaler for automatic scaling
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: linear-regression-hpa
+  namespace: ml-models
+spec:
+  scaleTargetRef:
+    apiVersion: serving.kserve.io/v1beta1
+    kind: InferenceService
+    name: linear-regression
+  
+  minReplicas: 1
+  maxReplicas: 5
+  
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+---
+# Optional: Network Policy for security
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: linear-regression-network-policy
+  namespace: ml-models
+spec:
+  podSelector:
+    matchLabels:
+      serving.kserve.io/inferenceservice: linear-regression
+  
+  policyTypes:
+  - Ingress
+  - Egress
+  
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          role: client
+    ports:
+    - protocol: TCP
+      port: 8080
+  
+  egress:
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443  # HTTPS for S3
+    - protocol: TCP
+      port: 53   # DNS
+
+---
+# Optional: PodDisruptionBudget for high availability
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: linear-regression-pdb
+  namespace: ml-models
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      serving.kserve.io/inferenceservice: linear-regression
+
+---
+# Optional: Service for external access
+# Note: KServe creates a service automatically, this is for reference
+apiVersion: v1
+kind: Service
+metadata:
+  name: linear-regression-service
+  namespace: ml-models
+  labels:
+    app: linear-regression
+spec:
+  type: LoadBalancer  # Or use ClusterIP if behind an ingress
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    serving.kserve.io/inferenceservice: linear-regression

@@ -1,0 +1,148 @@
+# Kubeflow Helm Chart Values
+# Reference: https://github.com/kubeflow/manifests
+
+namespace: kubeflow
+
+# Central Dashboard
+centralDashboard:
+  enabled: true
+  replicas: 1
+  image:
+    repository: gcr.io/kubeflow/central-dashboard
+    tag: v1.8.0
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Jupyter Web App
+jupyterWebApp:
+  enabled: true
+  replicas: 1
+  image:
+    repository: gcr.io/kubeflow/jupyter-web-app
+    tag: v1.8.0
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Katib (Hyperparameter Tuning)
+katib:
+  enabled: true
+  controller:
+    replicas: 1
+    image:
+      repository: gcr.io/kubeflow/katib/katib-controller
+      tag: v1.8.0
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+# Kubeflow Pipelines
+kubeflowPipelines:
+  enabled: true
+  apiServer:
+    replicas: 1
+    image:
+      repository: gcr.io/kubeflow/pipelines/api-server
+      tag: 2.0.5
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+  scheduledWorkflow:
+    replicas: 1
+  ui:
+    replicas: 1
+    image:
+      repository: gcr.io/kubeflow/pipelines/frontend
+      tag: 2.0.5
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+# ML Metadata
+mlMetadata:
+  enabled: true
+  replicas: 1
+  image:
+    repository: gcr.io/kubeflow/pipelines/metadata-server
+    tag: 2.0.5
+
+# Training Operators
+trainingOperators:
+  pytorchOperator:
+    enabled: true
+  tfOperator:
+    enabled: true
+  mpiOperator:
+    enabled: false
+
+# Knative Serving (for KServe integration)
+knativeServing:
+  enabled: false  # KServe handles model serving
+
+# Network Policies
+networkPolicy:
+  enabled: false
+
+# RBAC
+rbac:
+  enabled: true
+
+# Service Accounts
+serviceAccounts:
+  kubeflow:
+    annotations:
+      eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/${cluster_name}-kubeflow-*"
+    create: true
+    name: kubeflow-sa
+
+# Ingress Configuration
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: kubeflow.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: kubeflow-tls
+      hosts:
+        - kubeflow.example.com
+
+# Storage
+storage:
+  defaultStorageClass: ebs-sc
+  ebs:
+    enabled: true
+    size: 20Gi
+
+# Monitoring
+monitoring:
+  enabled: false  # Deploy separately if needed
+
+# Pod Security
+podSecurityPolicy:
+  enabled: false
