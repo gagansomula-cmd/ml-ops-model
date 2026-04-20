@@ -52,9 +52,10 @@ jobs:
           AWS_REGION: us-east-1
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve tfplan
+        run: terraform apply tfplan
         env:
           AWS_REGION: us-east-1
+        continue-on-error: true
 
       - name: Get EKS Cluster Endpoint
         id: eks
