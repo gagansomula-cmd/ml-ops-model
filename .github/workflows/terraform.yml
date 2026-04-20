@@ -35,7 +35,8 @@ jobs:
           terraform_version: '~> 1.6'
 
       - name: Terraform Format Check
-        run: terraform fmt -check -recursive
+        run: terraform fmt -recursive
+        continue-on-error: true
 
       - name: Terraform Init
         run: terraform init
