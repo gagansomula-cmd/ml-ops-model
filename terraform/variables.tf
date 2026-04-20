@@ -85,3 +85,15 @@ variable "tags" {
     ManagedBy   = "terraform"
   }
 }
+
+variable "github_repository" {
+  description = "GitHub repository in format owner/repo"
+  type        = string
+  default     = "gagansomula-cmd/ml-ops-model"
+}
+
+variable "github_branch" {
+  description = "GitHub branch for OIDC trust"
+  type        = string
+  default     = "main"
+}
