@@ -283,6 +283,8 @@ jobs:
 
       - name: Prepare ML Model for KServe
         working-directory: ./
+        env:
+          AWS_REGION: us-east-1
         run: |
           echo "=== Converting JSON Model to Sklearn Format ==="
           
@@ -333,39 +335,66 @@ jobs:
 
       - name: Deploy ML Model with Helm
         working-directory: ./
+        env:
+          AWS_REGION: us-east-1
         run: |
           echo "=== Deploying ML Model with Helm ==="
           
           CLUSTER_NAME=$(cd terraform && terraform output -raw cluster_name)
           echo "Cluster: $CLUSTER_NAME"
+          echo "AWS Region: $AWS_REGION"
+          
+          # Verify AWS credentials are available
+          echo ""
+          echo "Verifying AWS credentials..."
+          aws sts get-caller-identity || echo "⚠️  Cannot verify identity, but proceeding"
           
           # Reconfigure kubeconfig for this step (each step has separate shell context)
+          echo ""
           echo "Configuring kubectl access..."
-          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1 --kubeconfig ~/.kube/config
+          mkdir -p ~/.kube
+          
+          aws eks update-kubeconfig \
+            --name "$CLUSTER_NAME" \
+            --region "$AWS_REGION" \
+            --kubeconfig ~/.kube/config
           
           # Verify kubeconfig was created
           if [ -f ~/.kube/config ]; then
             echo "✅ kubeconfig created at ~/.kube/config"
             echo "File size: $(wc -c < ~/.kube/config) bytes"
+            echo ""
+            echo "kubeconfig context:"
+            kubectl config current-context || echo "No current context"
           else
             echo "❌ kubeconfig file not created"
             exit 1
           fi
           
-          # Test kubectl connectivity
+          # Test kubectl connectivity with retries
           echo ""
           echo "Testing kubectl connectivity..."
-          kubectl cluster-info || echo "⚠️  Initial connection test (may need a moment)"
-          echo "✅ kubectl configured"
+          for attempt in {1..5}; do
+            if kubectl cluster-info 2>/dev/null; then
+              echo "✅ kubectl connected successfully"
+              break
+            fi
+            if [ $attempt -lt 5 ]; then
+              echo "⏳ Attempt $attempt failed, retrying..."
+              sleep 2
+            else
+              echo "⚠️  kubectl connection test failed (may recover)"
+            fi
+          done
           
           # Check if helm chart exists
-          if [ -d "../helm/ml-model" ]; then
+          if [ -d "helm/ml-model" ]; then
             echo ""
-            echo "✅ Helm chart found at ../helm/ml-model"
+            echo "✅ Helm chart found at helm/ml-model"
             
             echo ""
             echo "=== Chart Details ==="
-            cat ../helm/ml-model/Chart.yaml 2>/dev/null || echo "Chart.yaml not found"
+            cat helm/ml-model/Chart.yaml 2>/dev/null || echo "Chart.yaml not found"
             
             echo ""
             echo "=== Deploying Linear Regression Model via Helm ==="
@@ -375,7 +404,7 @@ jobs:
             # Deploy with inline values override
             set -x  # Enable debug output
             
-            helm install sklearn-model ../helm/ml-model \
+            helm install sklearn-model helm/ml-model \
               --namespace kserve \
               --create-namespace \
               --set inferenceService.enabled=true \
@@ -429,24 +458,29 @@ jobs:
             
           else
             echo ""
-            echo "❌ Helm chart not found at ../helm/ml-model"
-            echo "Expected structure:"
-            echo "  ml-ops-model/"
-            echo "  ├── terraform/"
-            echo "  ├── helm/ml-model/"  
-            echo "  └── .github/workflows/"
+            echo "❌ Helm chart not found at helm/ml-model"
+            echo "Current directory: $(pwd)"
+            echo "Directory contents:"
+            ls -la
             exit 1
           fi
         continue-on-error: true
 
       - name: Verify ML Model Deployment
         working-directory: ./
+        env:
+          AWS_REGION: us-east-1
         run: |
           echo "=== ML Model Deployment Verification ==="
           
           # Reconfigure kubeconfig for this step
           CLUSTER_NAME=$(cd terraform && terraform output -raw cluster_name)
-          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1 --kubeconfig ~/.kube/config
+          
+          mkdir -p ~/.kube
+          aws eks update-kubeconfig \
+            --name "$CLUSTER_NAME" \
+            --region "$AWS_REGION" \
+            --kubeconfig ~/.kube/config
           
           # Wait a moment for deployment to start
           sleep 10
