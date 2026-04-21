@@ -337,12 +337,14 @@ jobs:
         working-directory: ./
         env:
           AWS_REGION: us-east-1
+          KUBECONFIG: ~/.kube/config
         run: |
           echo "=== Deploying ML Model with Helm ==="
           
           CLUSTER_NAME=$(cd terraform && terraform output -raw cluster_name)
           echo "Cluster: $CLUSTER_NAME"
           echo "AWS Region: $AWS_REGION"
+          echo "KUBECONFIG: $KUBECONFIG"
           
           # Verify AWS credentials are available
           echo ""
@@ -354,38 +356,38 @@ jobs:
           echo "Configuring kubectl access..."
           mkdir -p ~/.kube
           
+          # Use absolute path for kubeconfig
+          KUBECONFIG_FILE="$HOME/.kube/config"
+          export KUBECONFIG="$KUBECONFIG_FILE"
+          
+          echo "Creating kubeconfig at: $KUBECONFIG_FILE"
+          
           aws eks update-kubeconfig \
             --name "$CLUSTER_NAME" \
             --region "$AWS_REGION" \
-            --kubeconfig ~/.kube/config
+            --kubeconfig "$KUBECONFIG_FILE"
           
-          # Verify kubeconfig was created
-          if [ -f ~/.kube/config ]; then
-            echo "✅ kubeconfig created at ~/.kube/config"
-            echo "File size: $(wc -c < ~/.kube/config) bytes"
+          # Verify kubeconfig was created and has content
+          if [ -f "$KUBECONFIG_FILE" ]; then
+            FILE_SIZE=$(wc -c < "$KUBECONFIG_FILE")
+            echo "✅ kubeconfig created at $KUBECONFIG_FILE (${FILE_SIZE} bytes)"
+            
             echo ""
             echo "kubeconfig context:"
-            kubectl config current-context || echo "No current context"
+            kubectl config current-context || echo "No current context set"
           else
-            echo "❌ kubeconfig file not created"
+            echo "❌ kubeconfig file not created at $KUBECONFIG_FILE"
             exit 1
           fi
           
-          # Test kubectl connectivity with retries
+          # Test kubectl connectivity with explicit kubeconfig
           echo ""
           echo "Testing kubectl connectivity..."
-          for attempt in {1..5}; do
-            if kubectl cluster-info 2>/dev/null; then
-              echo "✅ kubectl connected successfully"
-              break
-            fi
-            if [ $attempt -lt 5 ]; then
-              echo "⏳ Attempt $attempt failed, retrying..."
-              sleep 2
-            else
-              echo "⚠️  kubectl connection test failed (may recover)"
-            fi
-          done
+          kubectl --kubeconfig="$KUBECONFIG_FILE" cluster-info 2>&1 | head -5 || true
+          
+          echo ""
+          echo "Getting kubectl auth info..."
+          kubectl auth can-i get nodes --as=system:serviceaccount:default:default 2>&1 || true
           
           # Check if helm chart exists
           if [ -d "helm/ml-model" ]; then
@@ -400,11 +402,14 @@ jobs:
             echo "=== Deploying Linear Regression Model via Helm ==="
             echo "Using model storage path: $S3_MODEL"
             echo "Using S3 bucket: $ML_BUCKET"
+            echo "Using kubeconfig: $KUBECONFIG_FILE"
             
             # Deploy with inline values override
-            set -x  # Enable debug output
+            echo ""
+            echo "Running helm install..."
             
             helm install sklearn-model helm/ml-model \
+              --kubeconfig="$KUBECONFIG_FILE" \
               --namespace kserve \
               --create-namespace \
               --set inferenceService.enabled=true \
@@ -417,8 +422,6 @@ jobs:
               --wait=false \
               --timeout=5m
             
-            set +x  # Disable debug output
-            
             HELM_EXIT=$?
             echo ""
             if [ $HELM_EXIT -eq 0 ]; then
@@ -427,34 +430,31 @@ jobs:
               echo "❌ Helm install command failed with exit code $HELM_EXIT"
               echo ""
               echo "=== Troubleshooting ==="
+              echo "Checking kubectl access..."
+              kubectl --kubeconfig="$KUBECONFIG_FILE" get nodes || echo "Cannot list nodes"
+              echo ""
               echo "Check helm release status:"
-              echo "  helm status sklearn-model -n kserve"
+              echo "  helm --kubeconfig=$KUBECONFIG_FILE status sklearn-model -n kserve"
               echo ""
               echo "Check helm release values:"
-              echo "  helm get values sklearn-model -n kserve"
-              echo ""
-              echo "Check for errors in events:"
-              echo "  kubectl get events -n kserve --sort-by='.lastTimestamp'"
+              echo "  helm --kubeconfig=$KUBECONFIG_FILE get values sklearn-model -n kserve"
             fi
             
             echo ""
             echo "=== Helm Releases in kserve namespace ==="
-            helm list -n kserve
+            helm list -n kserve --kubeconfig="$KUBECONFIG_FILE" 2>/dev/null || echo "Cannot list releases"
             
             echo ""
             echo "=== InferenceServices Status ==="
-            kubectl get inferenceservice -n kserve 2>/dev/null || echo "No InferenceServices found yet (still deploying)"
+            kubectl get inferenceservice -n kserve --kubeconfig="$KUBECONFIG_FILE" 2>/dev/null || echo "No InferenceServices found yet (still deploying)"
             
             echo ""
             echo "=== Next Steps ==="
             echo "Monitor deployment:"
-            echo "  kubectl get pods -n kserve -w"
+            echo "  kubectl --kubeconfig=$KUBECONFIG_FILE get pods -n kserve -w"
             echo ""
             echo "Check InferenceService details:"
-            echo "  kubectl describe inferenceservice sklearn-model -n kserve"
-            echo ""
-            echo "View predictor logs:"
-            echo "  kubectl logs -n kserve -l app.kubernetes.io/name=sklearn-model -f"
+            echo "  kubectl --kubeconfig=$KUBECONFIG_FILE describe inferenceservice sklearn-model -n kserve"
             
           else
             echo ""
@@ -470,6 +470,7 @@ jobs:
         working-directory: ./
         env:
           AWS_REGION: us-east-1
+          KUBECONFIG: ~/.kube/config
         run: |
           echo "=== ML Model Deployment Verification ==="
           
@@ -477,29 +478,32 @@ jobs:
           CLUSTER_NAME=$(cd terraform && terraform output -raw cluster_name)
           
           mkdir -p ~/.kube
+          KUBECONFIG_FILE="$HOME/.kube/config"
+          export KUBECONFIG="$KUBECONFIG_FILE"
+          
           aws eks update-kubeconfig \
             --name "$CLUSTER_NAME" \
             --region "$AWS_REGION" \
-            --kubeconfig ~/.kube/config
+            --kubeconfig "$KUBECONFIG_FILE"
           
           # Wait a moment for deployment to start
           sleep 10
           
           echo ""
           echo "=== KServe InferenceServices ==="
-          kubectl get inferenceservice -n kserve 2>/dev/null || echo "⚠️  InferenceServices not yet created"
+          kubectl get inferenceservice -n kserve --kubeconfig="$KUBECONFIG_FILE" 2>/dev/null || echo "⚠️  InferenceServices not yet created"
           
           echo ""
           echo "=== KServe Namespace Pods ==="
-          kubectl get pods -n kserve 2>/dev/null || echo "⚠️  Pods not yet created"
+          kubectl get pods -n kserve --kubeconfig="$KUBECONFIG_FILE" 2>/dev/null || echo "⚠️  Pods not yet created"
           
           echo ""
           echo "=== KServe Services ==="
-          kubectl get svc -n kserve 2>/dev/null || echo "⚠️  Services not yet created"
+          kubectl get svc -n kserve --kubeconfig="$KUBECONFIG_FILE" 2>/dev/null || echo "⚠️  Services not yet created"
           
           echo ""
           echo "=== All Namespaces ==="
-          kubectl get namespaces 2>/dev/null || echo "⚠️  Namespaces not available"
+          kubectl get namespaces --kubeconfig="$KUBECONFIG_FILE" 2>/dev/null || echo "⚠️  Namespaces not available"
           
           echo ""
           echo "=== Model Deployment Status ==="
@@ -511,15 +515,9 @@ jobs:
           echo "To check model status after workflow completes:"
           echo "  aws eks update-kubeconfig --name ml-ops-cluster --region us-east-1"
           echo "  kubectl describe inferenceservice -n kserve"
-          echo "  kubectl logs -n kserve -l app.kubernetes.io/name=ml-model -f"
           echo ""
           echo "Get inference endpoint:"
           echo "  kubectl get inferenceservice sklearn-model -n kserve -o jsonpath='{.status.url}'"
-          echo ""
-          echo "Test predictions (when ready):"
-          echo "  curl -X POST <endpoint>/v1/models/sklearn-model:predict \\"
-          echo "    -H 'Content-Type: application/json' \\"
-          echo "    -d '{\"instances\": [[1.0, 2.0, 3.0]]}'"
         continue-on-error: true
 
       - name: Upload Terraform Plan
