@@ -68,30 +68,30 @@ jobs:
           echo "Waiting for cluster to be ready..."
           sleep 30
           
-          CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "")
-          if [ -z "$CLUSTER_NAME" ]; then
+          CLUSTER_NAME=$(terraform output -json cluster_name | jq -r '.' 2>/dev/null || echo "")
+          if [ -z "$CLUSTER_NAME" ] || [ "$CLUSTER_NAME" = "null" ]; then
             echo "ERROR: cluster_name output not found"
-            terraform output
+            terraform output -json
             exit 1
           fi
           
           echo "Cluster name: $CLUSTER_NAME"
           
           # Verify cluster exists
-          if ! aws eks describe-cluster --name $CLUSTER_NAME --region us-east-1 &>/dev/null; then
+          if ! aws eks describe-cluster --name "$CLUSTER_NAME" --region us-east-1 &>/dev/null; then
             echo "ERROR: Cluster $CLUSTER_NAME not found in AWS"
             exit 1
           fi
           
-          ENDPOINT=$(aws eks describe-cluster --name $CLUSTER_NAME --region us-east-1 --query cluster.endpoint --output text)
+          ENDPOINT=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region us-east-1 --query cluster.endpoint --output text)
           echo "Cluster endpoint: $ENDPOINT"
           echo "cluster_endpoint=$ENDPOINT" >> $GITHUB_OUTPUT
 
       - name: Update kubeconfig
         run: |
-          CLUSTER_NAME=$(terraform output -raw cluster_name)
+          CLUSTER_NAME=$(terraform output -json cluster_name | jq -r '.')
           echo "Updating kubeconfig for cluster: $CLUSTER_NAME"
-          aws eks update-kubeconfig --name $CLUSTER_NAME --region us-east-1
+          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1
         continue-on-error: true
 
       - name: Verify EKS Deployment
