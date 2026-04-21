@@ -147,15 +147,17 @@ jobs:
           CLUSTER_NAME=$(terraform output -raw cluster_name)
           echo "Configuring kubectl for cluster: $CLUSTER_NAME"
           
-          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1
+          mkdir -p ~/.kube
+          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1 --kubeconfig ~/.kube/config
           
           echo ""
-          echo "Verifying kubectl connectivity..."
-          kubectl cluster-info || echo "⚠️  Cluster info not yet available (normal during early setup)"
-          
+          echo "kubeconfig created at: $HOME/.kube/config"
+          echo ""
+          echo "⚠️  Skipping connectivity test (aws-auth ConfigMap not yet applied)"
+          echo "kubectl access will be verified after aws-auth ConfigMap is applied"
           echo ""
           echo "✅ kubeconfig configured for $CLUSTER_NAME"
-        continue-on-error: true
+        continue-on-error: false
 
       - name: Setup Helm
         run: |
@@ -175,10 +177,11 @@ jobs:
           
           # Wait for cluster to be fully ready (extended wait)
           echo ""
-          echo "Waiting for cluster API to be fully ready..."
+          echo "Waiting for cluster to be ACTIVE..."
           for i in {1..30}; do
             echo "  Attempt $i/30..."
-            if aws eks describe-cluster --name "$CLUSTER_NAME" --region us-east-1 --query cluster.status --output text 2>/dev/null | grep -q "ACTIVE"; then
+            STATUS=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region us-east-1 --query cluster.status --output text 2>/dev/null)
+            if [ "$STATUS" = "ACTIVE" ]; then
               echo "✅ Cluster is ACTIVE"
               break
             fi
@@ -192,17 +195,6 @@ jobs:
           aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1 --kubeconfig ~/.kube/config
           
           export KUBECONFIG="$HOME/.kube/config"
-          
-          # Wait for API to be responsive
-          echo "Waiting for Kubernetes API to be responsive..."
-          for i in {1..30}; do
-            echo "  Attempt $i/30..."
-            if kubectl cluster-info 2>/dev/null | grep -q "Kubernetes control plane"; then
-              echo "✅ API is responsive"
-              break
-            fi
-            sleep 5
-          done
           
           # Apply the aws-auth ConfigMap (MUST EXIST)
           if [ ! -f "terraform/aws-auth-configmap.yaml" ]; then
@@ -224,11 +216,11 @@ jobs:
             exit 1
           fi
           
-          # Verify aws-auth ConfigMap was applied
+          # Wait for ConfigMap to be processed
           echo ""
-          echo "Verifying aws-auth ConfigMap..."
-          for i in {1..10}; do
-            echo "  Verification attempt $i/10..."
+          echo "Waiting for aws-auth ConfigMap to be processed..."
+          for i in {1..15}; do
+            echo "  Attempt $i/15..."
             if kubectl get configmap aws-auth -n kube-system 2>/dev/null; then
               echo "✅ aws-auth ConfigMap exists"
               break
@@ -247,6 +239,18 @@ jobs:
             echo "⚠️  GitHub Actions role mapping not found. Showing current mappings:"
             echo "$ROLE_MAPPING" | head -20
           fi
+          
+          # Now test kubectl connectivity with authentication
+          echo ""
+          echo "Testing kubectl connectivity with IAM role..."
+          for i in {1..10}; do
+            echo "  Attempt $i/10..."
+            if kubectl cluster-info 2>/dev/null | grep -q "Kubernetes control plane"; then
+              echo "✅ kubectl successfully authenticated"
+              break
+            fi
+            sleep 3
+          done
           
           echo ""
           echo "✅ aws-auth ConfigMap successfully applied and verified"
