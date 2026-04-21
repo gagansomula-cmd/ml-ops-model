@@ -107,33 +107,20 @@ jobs:
       - name: Configure aws-auth ConfigMap
         run: |
           GITHUB_ROLE_ARN=$(terraform output -raw github_actions_role_arn)
+          CLUSTER_NAME=$(terraform output -raw cluster_name)
           
           echo "Configuring aws-auth ConfigMap..."
-          echo "GitHub Actions Role: $GITHUB_ROLE_ARN"
+          echo "Cluster: $CLUSTER_NAME"
+          echo "GitHub Role: $GITHUB_ROLE_ARN"
           
-          # Create aws-auth ConfigMap YAML
-          cat > /tmp/aws-auth.yaml <<EOF
-          apiVersion: v1
-          kind: ConfigMap
-          metadata:
-            name: aws-auth
-            namespace: kube-system
-          data:
-            mapRoles: |
-              - rolearn: $GITHUB_ROLE_ARN
-                username: github-actions
-                groups:
-                - system:masters
-          EOF
+          # Use aws eks describe-cluster to verify we have access (role that created cluster has access)
+          aws eks describe-cluster --name "$CLUSTER_NAME" --region us-east-1 --query cluster.endpoint
           
-          # Apply the ConfigMap (skip validation since cluster auth might not be ready)
-          kubectl apply -f /tmp/aws-auth.yaml --validate=false
+          echo "Cluster is accessible to GitHubActionsRole (the role that created it)"
           
-          # Wait for ConfigMap to be created
-          sleep 5
-          
-          # Verify
-          kubectl get configmap aws-auth -n kube-system -o yaml || echo "ConfigMap verification skipped"
+          # The role that created the cluster automatically has access
+          # No need to create aws-auth ConfigMap as the creator role already has full access
+          echo "GitHubActionsRole already has EKS access (creator role)"
         continue-on-error: true
 
       - name: Verify EKS Deployment
