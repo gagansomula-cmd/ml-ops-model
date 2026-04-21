@@ -281,6 +281,35 @@ jobs:
           echo "⏱️  Full deployment typically takes 10-15 minutes. Check pod status regularly."
         continue-on-error: true
 
+      - name: Prepare ML Model for KServe
+        run: |
+          echo "=== Converting JSON Model to Sklearn Format ==="
+          
+          # Install required Python packages
+          python3 -m pip install scikit-learn boto3 -q
+          
+          # Prepare the model (convert JSON to sklearn pickle)
+          cd ..
+          python3 prepare_model.py \
+            --json-path model_artifacts/linear_regression_model.json \
+            --output model_artifacts/model.joblib \
+            --upload-s3 \
+            --s3-bucket ml-ops-models \
+            --s3-key linear-regression/model.joblib \
+            --region us-east-1
+          
+          echo ""
+          echo "✅ Model preparation complete"
+          
+          # Verify the model was created locally
+          if [ -f "model_artifacts/model.joblib" ]; then
+            echo "✅ Local model file: model_artifacts/model.joblib"
+            ls -lh model_artifacts/model.joblib
+          else
+            echo "⚠️  Local model file not found"
+          fi
+        continue-on-error: true
+
       - name: Deploy ML Model with Helm
         run: |
           echo "=== Deploying ML Model with Helm ==="
@@ -288,50 +317,83 @@ jobs:
           CLUSTER_NAME=$(terraform output -raw cluster_name)
           echo "Cluster: $CLUSTER_NAME"
           
-          # Navigate to helm chart directory
+          # Check if helm chart exists
           if [ -d "../helm/ml-model" ]; then
             echo ""
             echo "✅ Helm chart found at ../helm/ml-model"
             
             echo ""
-            echo "=== Helm Chart Information ==="
+            echo "=== Chart Details ==="
             cat ../helm/ml-model/Chart.yaml 2>/dev/null || echo "Chart.yaml not found"
             
             echo ""
-            echo "=== Available Examples ==="
-            ls -la ../helm/ml-model/examples/ 2>/dev/null || echo "Examples directory not found"
+            echo "=== Deploying Linear Regression Model via Helm ==="
             
-            echo ""
-            echo "=== Deploying Sklearn Model (Example) ==="
+            # Deploy with inline values override to ensure model storage path works
+            # Using s3:// reference which KServe will mount from S3
+            set -x  # Enable debug output to see actual command
+            
             helm install sklearn-model ../helm/ml-model \
-              -f ../helm/ml-model/examples/inference-sklearn.yaml \
               --namespace kserve \
               --create-namespace \
+              --set inferenceService.enabled=true \
+              --set inferenceService.name=sklearn-model \
+              --set inferenceService.model.format=sklearn \
+              --set inferenceService.model.storageUri="s3://ml-ops-models/linear-regression/model.joblib" \
+              --set aws.s3.bucket="ml-ops-models" \
+              --set aws.s3.region="us-east-1" \
+              --set trainingJob.enabled=false \
               --wait=false \
-              --timeout=5m 2>&1 || echo "⚠️  Helm install status (may already exist or cluster not ready)"
+              --timeout=5m
+            
+            set +x  # Disable debug output
+            
+            HELM_EXIT=$?
+            echo ""
+            if [ $HELM_EXIT -eq 0 ]; then
+              echo "✅ Helm install command succeeded"
+            else
+              echo "❌ Helm install command failed with exit code $HELM_EXIT"
+              echo ""
+              echo "=== Troubleshooting ==="
+              echo "Check helm release status:"
+              echo "  helm status sklearn-model -n kserve"
+              echo ""
+              echo "Check helm release values:"
+              echo "  helm get values sklearn-model -n kserve"
+              echo ""
+              echo "Check for errors in events:"
+              echo "  kubectl get events -n kserve --sort-by='.lastTimestamp'"
+            fi
             
             echo ""
-            echo "=== Checking Helm Releases ==="
-            helm list -n kserve 2>/dev/null || echo "No releases found yet"
+            echo "=== Helm Releases in kserve namespace ==="
+            helm list -n kserve
             
             echo ""
-            echo "=== Expected Deployment ==="
-            echo "✅ Helm Release: sklearn-model deployed to kserve namespace"
-            echo "✅ InferenceService: Creates KServe service for model inference"
-            echo "✅ ServiceAccount: With IAM role for S3 access"
+            echo "=== InferenceServices Status ==="
+            kubectl get inferenceservice -n kserve 2>/dev/null || echo "No InferenceServices found yet (still deploying)"
+            
             echo ""
-            echo "To verify deployment status:"
-            echo "  kubectl get inferenceservice -n kserve"
+            echo "=== Next Steps ==="
+            echo "Monitor deployment:"
             echo "  kubectl get pods -n kserve -w"
+            echo ""
+            echo "Check InferenceService details:"
             echo "  kubectl describe inferenceservice sklearn-model -n kserve"
+            echo ""
+            echo "View predictor logs:"
+            echo "  kubectl logs -n kserve -l app.kubernetes.io/name=sklearn-model -f"
             
           else
             echo ""
-            echo "⚠️  Helm chart not found at ../helm/ml-model"
-            echo "Helm chart should be created at: helm/ml-model/"
-            echo ""
-            echo "To create the chart manually:"
-            echo "  helm create helm/ml-model"
+            echo "❌ Helm chart not found at ../helm/ml-model"
+            echo "Expected structure:"
+            echo "  ml-ops-model/"
+            echo "  ├── terraform/"
+            echo "  ├── helm/ml-model/"  
+            echo "  └── .github/workflows/"
+            exit 1
           fi
         continue-on-error: true
 
