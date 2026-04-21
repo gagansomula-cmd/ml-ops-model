@@ -1,7 +1,7 @@
 # S3 backend for Terraform state
 # Create S3 bucket first: aws s3api create-bucket --bucket ml-ops-terraform-state-679631209574 --region us-east-1
-# Then uncomment the block below and run: terraform init -reconfigure
-/*
+# Then run: terraform init -reconfigure
+
 terraform {
   backend "s3" {
     bucket       = "ml-ops-terraform-state-679631209574"
@@ -11,4 +11,3 @@ terraform {
     use_lockfile = true
   }
 }
-*/
