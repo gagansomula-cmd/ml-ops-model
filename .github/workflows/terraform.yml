@@ -142,6 +142,21 @@ jobs:
           echo "  kubectl get nodes"
         continue-on-error: true
 
+      - name: Configure kubectl for EKS
+        run: |
+          CLUSTER_NAME=$(terraform output -raw cluster_name)
+          echo "Configuring kubectl for cluster: $CLUSTER_NAME"
+          
+          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1
+          
+          echo ""
+          echo "Verifying kubectl connectivity..."
+          kubectl cluster-info || echo "⚠️  Cluster info not yet available (normal during early setup)"
+          
+          echo ""
+          echo "✅ kubeconfig configured for $CLUSTER_NAME"
+        continue-on-error: true
+
       - name: Setup Helm
         run: |
           # Helm is pre-installed on ubuntu-latest
@@ -273,14 +288,6 @@ jobs:
           CLUSTER_NAME=$(terraform output -raw cluster_name)
           echo "Cluster: $CLUSTER_NAME"
           
-          echo ""
-          echo "=== Configuring kubectl ==="
-          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1
-          
-          echo ""
-          echo "=== Verifying cluster access ==="
-          kubectl cluster-info || echo "⚠️  kubectl may not have full access yet"
-          
           # Navigate to helm chart directory
           if [ -d "../helm/ml-model" ]; then
             echo ""
@@ -332,26 +339,24 @@ jobs:
         run: |
           echo "=== ML Model Deployment Verification ==="
           
-          CLUSTER_NAME=$(terraform output -raw cluster_name)
-          
-          echo ""
-          echo "=== Updating kubeconfig (if not already done) ==="
-          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1 2>/dev/null || true
-          
           # Wait a moment for deployment to start
           sleep 10
           
           echo ""
           echo "=== KServe InferenceServices ==="
-          kubectl get inferenceservice -n kserve 2>/dev/null || echo "⚠️  InferenceServices not yet created or kubectl not connected"
+          kubectl get inferenceservice -n kserve 2>/dev/null || echo "⚠️  InferenceServices not yet created"
           
           echo ""
           echo "=== KServe Namespace Pods ==="
-          kubectl get pods -n kserve 2>/dev/null || echo "⚠️  Pods not yet created or kubectl not connected"
+          kubectl get pods -n kserve 2>/dev/null || echo "⚠️  Pods not yet created"
           
           echo ""
           echo "=== KServe Services ==="
-          kubectl get svc -n kserve 2>/dev/null || echo "⚠️  Services not yet created or kubectl not connected"
+          kubectl get svc -n kserve 2>/dev/null || echo "⚠️  Services not yet created"
+          
+          echo ""
+          echo "=== All Namespaces ==="
+          kubectl get namespaces 2>/dev/null || echo "⚠️  Namespaces not available"
           
           echo ""
           echo "=== Model Deployment Status ==="
@@ -361,7 +366,7 @@ jobs:
           echo "  10+ min:   Model ready for predictions"
           echo ""
           echo "To check model status after workflow completes:"
-          echo "  aws eks update-kubeconfig --name $CLUSTER_NAME --region us-east-1"
+          echo "  aws eks update-kubeconfig --name ml-ops-cluster --region us-east-1"
           echo "  kubectl describe inferenceservice -n kserve"
           echo "  kubectl logs -n kserve -l app.kubernetes.io/name=ml-model -f"
           echo ""
