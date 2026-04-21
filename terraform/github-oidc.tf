@@ -1,14 +1,18 @@
 # GitHub OIDC Provider for AWS
+# Note: Provider is managed separately in AWS. To manage via Terraform, uncomment below and run: terraform import
+/*
 resource "aws_iam_openid_connect_provider" "github" {
   url             = "https://token.actions.githubusercontent.com"
   client_id_list  = ["sts.amazonaws.com"]
   thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
 
   tags = var.tags
+}
+*/
 
-  lifecycle {
-    ignore_changes = all
-  }
+# Data source to lookup existing GitHub OIDC provider
+data "aws_iam_openid_connect_provider" "github" {
+  url = "https://token.actions.githubusercontent.com"
 }
 
 # Trust policy for GitHub Actions
@@ -18,7 +22,7 @@ data "aws_iam_policy_document" "github_actions_trust" {
 
     principals {
       type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.github.arn]
+      identifiers = [data.aws_iam_openid_connect_provider.github.arn]
     }
 
     actions = ["sts:AssumeRoleWithWebIdentity"]
@@ -139,7 +143,7 @@ output "github_actions_setup" {
   description = "GitHub Actions OIDC setup information"
   value = {
     role_arn      = aws_iam_role.github_actions.arn
-    oidc_provider = aws_iam_openid_connect_provider.github.arn
+    oidc_provider = data.aws_iam_openid_connect_provider.github.arn
     account_id    = data.aws_caller_identity.current.account_id
     trust_policy  = "repo:${var.github_repository}:ref:refs/heads/${var.github_branch}"
   }
