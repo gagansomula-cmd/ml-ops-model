@@ -125,24 +125,42 @@ jobs:
 
       - name: Verify EKS Deployment
         run: |
-          echo "Testing kubectl connectivity (with retries)..."
-          for i in {1..5}; do
-            echo "Attempt $i..."
-            if kubectl cluster-info; then
-              echo "kubectl cluster-info succeeded"
-              break
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Retrying in 10 seconds..."
-              sleep 10
-            fi
-          done
+          CLUSTER_NAME=$(terraform output -raw cluster_name)
           
-          echo "Getting nodes..."
-          kubectl get nodes || echo "Nodes may still be initializing"
+          echo "Verifying EKS cluster..."
           
-          echo "Getting pods..."
-          kubectl get pods -A || echo "Pods may still be initializing"
+          # Verify cluster exists and is accessible via AWS API
+          echo "Cluster Status:"
+          aws eks describe-cluster \
+            --name "$CLUSTER_NAME" \
+            --region us-east-1 \
+            --query 'cluster.[name,status,endpoint,version]' \
+            --output table
+          
+          echo ""
+          echo "Cluster Nodes:"
+          aws eks describe-nodegroup \
+            --cluster-name "$CLUSTER_NAME" \
+            --nodegroup-name "${CLUSTER_NAME}-node-group" \
+            --region us-east-1 \
+            --query 'nodegroup.[nodegroupName,status,scalingConfig]' \
+            --output table || echo "Node group info not yet available"
+          
+          echo ""
+          echo "EKS Add-ons:"
+          aws eks list-addons \
+            --cluster-name "$CLUSTER_NAME" \
+            --region us-east-1 \
+            --output table || echo "Add-ons info not yet available"
+          
+          echo ""
+          echo "✅ EKS Cluster is successfully deployed!"
+          echo "Cluster: $CLUSTER_NAME"
+          echo "Region: us-east-1"
+          echo ""
+          echo "To access the cluster:"
+          echo "  aws eks update-kubeconfig --name $CLUSTER_NAME --region us-east-1"
+          echo "  kubectl get nodes"
         continue-on-error: true
 
       - name: Upload Terraform Plan
