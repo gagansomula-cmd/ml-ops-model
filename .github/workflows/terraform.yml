@@ -273,17 +273,26 @@ jobs:
           CLUSTER_NAME=$(terraform output -raw cluster_name)
           echo "Cluster: $CLUSTER_NAME"
           
+          echo ""
+          echo "=== Configuring kubectl ==="
+          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1
+          
+          echo ""
+          echo "=== Verifying cluster access ==="
+          kubectl cluster-info || echo "⚠️  kubectl may not have full access yet"
+          
           # Navigate to helm chart directory
           if [ -d "../helm/ml-model" ]; then
+            echo ""
             echo "✅ Helm chart found at ../helm/ml-model"
             
             echo ""
             echo "=== Helm Chart Information ==="
-            cat ../helm/ml-model/Chart.yaml
+            cat ../helm/ml-model/Chart.yaml 2>/dev/null || echo "Chart.yaml not found"
             
             echo ""
             echo "=== Available Examples ==="
-            ls -la ../helm/ml-model/examples/
+            ls -la ../helm/ml-model/examples/ 2>/dev/null || echo "Examples directory not found"
             
             echo ""
             echo "=== Deploying Sklearn Model (Example) ==="
@@ -292,7 +301,7 @@ jobs:
               --namespace kserve \
               --create-namespace \
               --wait=false \
-              --timeout=5m || echo "Helm install initiated or already exists"
+              --timeout=5m 2>&1 || echo "⚠️  Helm install status (may already exist or cluster not ready)"
             
             echo ""
             echo "=== Checking Helm Releases ==="
@@ -310,6 +319,7 @@ jobs:
             echo "  kubectl describe inferenceservice sklearn-model -n kserve"
             
           else
+            echo ""
             echo "⚠️  Helm chart not found at ../helm/ml-model"
             echo "Helm chart should be created at: helm/ml-model/"
             echo ""
@@ -322,20 +332,26 @@ jobs:
         run: |
           echo "=== ML Model Deployment Verification ==="
           
+          CLUSTER_NAME=$(terraform output -raw cluster_name)
+          
+          echo ""
+          echo "=== Updating kubeconfig (if not already done) ==="
+          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1 2>/dev/null || true
+          
           # Wait a moment for deployment to start
           sleep 10
           
           echo ""
           echo "=== KServe InferenceServices ==="
-          kubectl get inferenceservice -n kserve 2>/dev/null || echo "InferenceServices not yet created"
+          kubectl get inferenceservice -n kserve 2>/dev/null || echo "⚠️  InferenceServices not yet created or kubectl not connected"
           
           echo ""
           echo "=== KServe Namespace Pods ==="
-          kubectl get pods -n kserve 2>/dev/null || echo "Pods not yet created"
+          kubectl get pods -n kserve 2>/dev/null || echo "⚠️  Pods not yet created or kubectl not connected"
           
           echo ""
           echo "=== KServe Services ==="
-          kubectl get svc -n kserve 2>/dev/null || echo "Services not yet created"
+          kubectl get svc -n kserve 2>/dev/null || echo "⚠️  Services not yet created or kubectl not connected"
           
           echo ""
           echo "=== Model Deployment Status ==="
@@ -344,7 +360,8 @@ jobs:
           echo "  5-10 min:  Predictor pods running, model loading"
           echo "  10+ min:   Model ready for predictions"
           echo ""
-          echo "Check model status:"
+          echo "To check model status after workflow completes:"
+          echo "  aws eks update-kubeconfig --name $CLUSTER_NAME --region us-east-1"
           echo "  kubectl describe inferenceservice -n kserve"
           echo "  kubectl logs -n kserve -l app.kubernetes.io/name=ml-model -f"
           echo ""
