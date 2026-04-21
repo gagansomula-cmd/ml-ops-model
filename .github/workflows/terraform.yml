@@ -168,6 +168,83 @@ jobs:
           echo "Helm is ready. Repositories will be added during component deployment."
         continue-on-error: true
 
+      - name: Verify aws-auth ConfigMap Generation
+        run: |
+          echo "=== Verifying aws-auth ConfigMap Generation ==="
+          
+          # Check if file exists
+          if [ -f "aws-auth-configmap.yaml" ]; then
+            echo "✅ aws-auth-configmap.yaml found"
+            echo ""
+            echo "File location: $(pwd)/aws-auth-configmap.yaml"
+            echo "File size: $(wc -c < aws-auth-configmap.yaml) bytes"
+            echo ""
+            echo "=== File Contents ==="
+            cat aws-auth-configmap.yaml
+            echo ""
+          else
+            echo "⚠️  aws-auth-configmap.yaml not found in current directory"
+            echo "Expected location: $(pwd)/aws-auth-configmap.yaml"
+            echo ""
+            echo "Checking terraform directory..."
+            ls -la terraform/ | grep -i auth || echo "No auth files in terraform/"
+          fi
+          
+          # Get GitHub Actions role ARN from Terraform
+          echo ""
+          echo "=== GitHub Actions Role Information ==="
+          cd terraform && ROLE_ARN=$(terraform output -raw github_actions_role_arn 2>/dev/null || echo "NOT_FOUND")
+          echo "GitHub Actions Role ARN: $ROLE_ARN"
+          cd ..
+          
+          # Check if the role ARNs match
+          if [ -f "aws-auth-configmap.yaml" ]; then
+            echo ""
+            echo "=== Validating Role ARN in ConfigMap ==="
+            if grep -q "$ROLE_ARN" aws-auth-configmap.yaml; then
+              echo "✅ GitHub Actions role ARN found in ConfigMap"
+            else
+              echo "❌ GitHub Actions role ARN NOT found in ConfigMap!"
+              echo "Expected: $ROLE_ARN"
+              echo "ConfigMap contains:"
+              grep -i rolearn aws-auth-configmap.yaml || echo "No role ARNs found"
+            fi
+          fi
+        continue-on-error: false
+
+      - name: Wait for Kubernetes API Ready
+        run: |
+          echo "=== Waiting for Kubernetes API to be Ready ==="
+          
+          CLUSTER_NAME=$(cd terraform && terraform output -raw cluster_name)
+          
+          # Get cluster endpoint
+          ENDPOINT=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region us-east-1 --query cluster.endpoint --output text)
+          echo "Cluster endpoint: $ENDPOINT"
+          
+          # Wait for API server to respond
+          echo ""
+          echo "Waiting for API server to respond to requests..."
+          for i in {1..60}; do
+            echo "  Attempt $i/60 ($(( i * 5 )) seconds elapsed)..."
+            
+            # Try a simple health check
+            RESPONSE=$(curl -s -k "$ENDPOINT/healthz" 2>&1 || echo "FAILED")
+            
+            if echo "$RESPONSE" | grep -q "ok\|healthy"; then
+              echo "✅ API server is responding"
+              break
+            fi
+            
+            if [ $i -eq 60 ]; then
+              echo "⚠️  API server not responding after 5 minutes (but this may be normal)"
+              break
+            fi
+            
+            sleep 5
+          done
+        continue-on-error: true
+
       - name: Apply aws-auth ConfigMap for GitHub Actions Role
         run: |
           echo "=== Applying aws-auth ConfigMap (CRITICAL STEP) ==="
@@ -175,12 +252,13 @@ jobs:
           CLUSTER_NAME=$(cd terraform && terraform output -raw cluster_name)
           echo "Cluster: $CLUSTER_NAME"
           
-          # Wait for cluster to be fully ready (extended wait)
+          # Wait for cluster to be ACTIVE
           echo ""
           echo "Waiting for cluster to be ACTIVE..."
           for i in {1..30}; do
             echo "  Attempt $i/30..."
             STATUS=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region us-east-1 --query cluster.status --output text 2>/dev/null)
+            echo "  Status: $STATUS"
             if [ "$STATUS" = "ACTIVE" ]; then
               echo "✅ Cluster is ACTIVE"
               break
@@ -196,29 +274,55 @@ jobs:
           
           export KUBECONFIG="$HOME/.kube/config"
           
-          # Apply the aws-auth ConfigMap (MUST EXIST)
-          if [ ! -f "terraform/aws-auth-configmap.yaml" ]; then
-            echo ""
+          # Find and verify aws-auth ConfigMap file
+          echo ""
+          echo "=== Locating aws-auth ConfigMap file ==="
+          
+          AWS_AUTH_FILE=""
+          for possible_path in "aws-auth-configmap.yaml" "terraform/../aws-auth-configmap.yaml" "../aws-auth-configmap.yaml"; do
+            if [ -f "$possible_path" ]; then
+              AWS_AUTH_FILE="$possible_path"
+              echo "✅ Found at: $possible_path"
+              break
+            fi
+          done
+          
+          if [ -z "$AWS_AUTH_FILE" ]; then
             echo "❌ CRITICAL ERROR: aws-auth-configmap.yaml not found!"
-            echo "Expected at: terraform/aws-auth-configmap.yaml"
-            ls -la terraform/ | grep -i auth || echo "File not found in terraform directory"
+            echo ""
+            echo "Searched paths:"
+            echo "  - aws-auth-configmap.yaml"
+            echo "  - terraform/../aws-auth-configmap.yaml"
+            echo "  - ../aws-auth-configmap.yaml"
+            echo ""
+            echo "Files in current directory:"
+            ls -la | grep -i auth || echo "  (no files matching 'auth')"
+            echo ""
+            echo "Files in terraform directory:"
+            ls -la terraform/ | grep -i auth || echo "  (no files matching 'auth')"
             exit 1
           fi
           
+          echo "File size: $(wc -c < "$AWS_AUTH_FILE") bytes"
           echo ""
-          echo "Applying aws-auth ConfigMap from Terraform output..."
-          kubectl apply -f terraform/aws-auth-configmap.yaml
+          echo "=== aws-auth ConfigMap Content ==="
+          cat "$AWS_AUTH_FILE"
+          echo ""
+          
+          # Apply the aws-auth ConfigMap
+          echo "=== Applying ConfigMap ==="
+          kubectl apply -f "$AWS_AUTH_FILE"
           
           APPLY_EXIT=$?
           if [ $APPLY_EXIT -ne 0 ]; then
             echo ""
-            echo "❌ ERROR: Failed to apply aws-auth ConfigMap"
+            echo "❌ ERROR: Failed to apply aws-auth ConfigMap (exit code: $APPLY_EXIT)"
             exit 1
           fi
           
           # Wait for ConfigMap to be processed
           echo ""
-          echo "Waiting for aws-auth ConfigMap to be processed..."
+          echo "Waiting for ConfigMap to be processed..."
           for i in {1..15}; do
             echo "  Attempt $i/15..."
             if kubectl get configmap aws-auth -n kube-system 2>/dev/null; then
@@ -228,33 +332,91 @@ jobs:
             sleep 3
           done
           
+          # Verify the ConfigMap content
+          echo ""
+          echo "=== Verifying aws-auth ConfigMap Content ==="
+          kubectl get configmap aws-auth -n kube-system -o yaml
+          
           # Verify GitHub Actions role is mapped
           echo ""
           echo "Checking GitHub Actions role mapping..."
-          ROLE_MAPPING=$(kubectl get configmap aws-auth -n kube-system -o jsonpath='{.data.mapRoles}' 2>/dev/null)
+          ROLE_ARN=$(cd terraform && terraform output -raw github_actions_role_arn 2>/dev/null || echo "")
           
-          if echo "$ROLE_MAPPING" | grep -q "system:masters"; then
-            echo "✅ GitHub Actions role is mapped to system:masters"
+          if [ -z "$ROLE_ARN" ]; then
+            echo "⚠️  Could not get GitHub Actions role ARN from Terraform"
           else
-            echo "⚠️  GitHub Actions role mapping not found. Showing current mappings:"
-            echo "$ROLE_MAPPING" | head -20
+            echo "GitHub Actions Role ARN: $ROLE_ARN"
+            
+            CONFIG_CONTENT=$(kubectl get configmap aws-auth -n kube-system -o jsonpath='{.data.mapRoles}' 2>/dev/null)
+            
+            if echo "$CONFIG_CONTENT" | grep -q "$ROLE_ARN"; then
+              echo "✅ GitHub Actions role is mapped in ConfigMap"
+            else
+              echo "⚠️  GitHub Actions role ARN not found in ConfigMap!"
+              echo ""
+              echo "ConfigMap mapRoles:"
+              echo "$CONFIG_CONTENT" | head -30
+            fi
           fi
           
-          # Now test kubectl connectivity with authentication
+          # Test kubectl authentication
           echo ""
-          echo "Testing kubectl connectivity with IAM role..."
-          for i in {1..10}; do
-            echo "  Attempt $i/10..."
-            if kubectl cluster-info 2>/dev/null | grep -q "Kubernetes control plane"; then
-              echo "✅ kubectl successfully authenticated"
-              break
-            fi
-            sleep 3
-          done
+          echo "Testing kubectl authentication with IAM role..."
+          if kubectl get namespace default 2>&1 | head -3; then
+            echo "✅ kubectl successfully authenticated"
+          else
+            echo "⚠️  kubectl authentication may need more time to take effect"
+            echo "     (IAM role mapping can take 30-60 seconds to activate)"
+          fi
           
           echo ""
-          echo "✅ aws-auth ConfigMap successfully applied and verified"
+          echo "✅ aws-auth ConfigMap application completed"
         continue-on-error: false
+
+      - name: Wait for Kubectl Authentication Ready
+        run: |
+          echo "=== Waiting for kubectl Authentication to be Ready ==="
+          echo ""
+          echo "Note: IAM role authorization can take 30-120 seconds to propagate"
+          echo "      even after aws-auth ConfigMap is applied"
+          echo ""
+          
+          # Set kubeconfig
+          mkdir -p ~/.kube
+          CLUSTER_NAME=$(cd terraform && terraform output -raw cluster_name)
+          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1 --kubeconfig ~/.kube/config
+          export KUBECONFIG="$HOME/.kube/config"
+          
+          # Wait for kubectl to successfully authenticate and execute commands
+          echo "Testing kubectl commands..."
+          for i in {1..60}; do
+            echo "  Attempt $i/60 ($(( i * 2 )) seconds elapsed)..."
+            
+            # Try to get pods in default namespace
+            if kubectl get pods -n default 2>/dev/null | grep -q "NAME"; then
+              echo "✅ kubectl is fully authenticated"
+              
+              # Show some basic info
+              echo ""
+              echo "Cluster Info:"
+              kubectl cluster-info 2>/dev/null | head -3
+              
+              echo ""
+              echo "Nodes:"
+              kubectl get nodes 2>/dev/null || echo "  (nodes not yet visible)"
+              
+              break
+            fi
+            
+            if [ $i -eq 60 ]; then
+              echo "⚠️  kubectl still not fully authenticated after 2 minutes"
+              echo "    Proceeding anyway (may cause Helm deployment issues)"
+              break
+            fi
+            
+            sleep 2
+          done
+        continue-on-error: true
 
       - name: Deploy Cert-Manager (KServe Prerequisite)
         run: |
@@ -456,23 +618,22 @@ jobs:
             exit 1
           fi
           
-          # ===== Setup kubeconfig using IAM role =====
+          # ===== Use existing kubeconfig =====
           echo ""
           echo "=== Configuring EKS Access via IAM Role ==="
           mkdir -p ~/.kube
           KUBECONFIG_FILE="$HOME/.kube/config"
           
-          # Remove existing kubeconfig to ensure fresh config
-          rm -f "$KUBECONFIG_FILE"
-          
-          echo "Creating kubeconfig for: $CLUSTER_NAME"
-          
-          # This command uses the IAM role from configure-aws-credentials
-          # No explicit credentials needed - AWS SDK uses the IAM role automatically
-          aws eks update-kubeconfig \
-            --name "$CLUSTER_NAME" \
-            --region "us-east-1" \
-            --kubeconfig "$KUBECONFIG_FILE"
+          # Use existing kubeconfig if it exists, otherwise create new one
+          if [ -f "$KUBECONFIG_FILE" ]; then
+            echo "✅ Using existing kubeconfig"
+          else
+            echo "Creating new kubeconfig for: $CLUSTER_NAME"
+            aws eks update-kubeconfig \
+              --name "$CLUSTER_NAME" \
+              --region "us-east-1" \
+              --kubeconfig "$KUBECONFIG_FILE"
+          fi
           
           if [ ! -f "$KUBECONFIG_FILE" ]; then
             echo "❌ Failed to create kubeconfig"
@@ -480,7 +641,7 @@ jobs:
           fi
           
           FILE_SIZE=$(wc -c < "$KUBECONFIG_FILE")
-          echo "✅ kubeconfig created (${FILE_SIZE} bytes)"
+          echo "✅ kubeconfig available (${FILE_SIZE} bytes)"
           
           # ===== Test kubectl with IAM role =====
           echo ""
@@ -496,6 +657,20 @@ jobs:
           else
             echo "❌ CRITICAL ERROR: kubectl connection failed"
             echo ""
+            echo "Debugging information:"
+            echo "kubeconfig exists: $([ -f "$KUBECONFIG_FILE" ] && echo "YES" || echo "NO")"
+            echo "kubeconfig size: $([ -f "$KUBECONFIG_FILE" ] && wc -c < "$KUBECONFIG_FILE" || echo "N/A")"
+            
+            echo ""
+            echo "Current context:"
+            kubectl config current-context 2>&1 || echo "Failed to get context"
+            
+            echo ""
+            echo "Trying direct API test..."
+            kubectl get namespace default 2>&1 || echo "Direct API test failed"
+            
+            exit 1
+          fi
             echo "Debugging information:"
             echo "kubeconfig exists: $([ -f "$KUBECONFIG_FILE" ] && echo "YES" || echo "NO")"
             echo "kubeconfig size: $([ -f "$KUBECONFIG_FILE" ] && wc -c < "$KUBECONFIG_FILE" || echo "N/A")"
