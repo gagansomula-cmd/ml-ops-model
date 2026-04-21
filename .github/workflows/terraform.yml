@@ -282,6 +282,7 @@ jobs:
         continue-on-error: true
 
       - name: Prepare ML Model for KServe
+        working-directory: ./
         run: |
           echo "=== Converting JSON Model to Sklearn Format ==="
           
@@ -289,7 +290,6 @@ jobs:
           python3 -m pip install scikit-learn boto3 -q
           
           # Get the S3 bucket name from Terraform outputs
-          cd ..
           ML_BUCKET=$(cd terraform && terraform output -raw ml_models_bucket 2>/dev/null || echo "mlops-trainig-679631209574-us-east-1-an")
           echo "Using S3 bucket: $ML_BUCKET"
           
@@ -332,16 +332,31 @@ jobs:
         continue-on-error: false
 
       - name: Deploy ML Model with Helm
+        working-directory: ./
         run: |
           echo "=== Deploying ML Model with Helm ==="
           
-          CLUSTER_NAME=$(terraform output -raw cluster_name)
+          CLUSTER_NAME=$(cd terraform && terraform output -raw cluster_name)
           echo "Cluster: $CLUSTER_NAME"
           
           # Reconfigure kubeconfig for this step (each step has separate shell context)
           echo "Configuring kubectl access..."
-          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1
-          echo "✅ kubeconfig updated"
+          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1 --kubeconfig ~/.kube/config
+          
+          # Verify kubeconfig was created
+          if [ -f ~/.kube/config ]; then
+            echo "✅ kubeconfig created at ~/.kube/config"
+            echo "File size: $(wc -c < ~/.kube/config) bytes"
+          else
+            echo "❌ kubeconfig file not created"
+            exit 1
+          fi
+          
+          # Test kubectl connectivity
+          echo ""
+          echo "Testing kubectl connectivity..."
+          kubectl cluster-info || echo "⚠️  Initial connection test (may need a moment)"
+          echo "✅ kubectl configured"
           
           # Check if helm chart exists
           if [ -d "../helm/ml-model" ]; then
@@ -425,12 +440,13 @@ jobs:
         continue-on-error: true
 
       - name: Verify ML Model Deployment
+        working-directory: ./
         run: |
           echo "=== ML Model Deployment Verification ==="
           
           # Reconfigure kubeconfig for this step
-          CLUSTER_NAME=$(terraform output -raw cluster_name)
-          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1
+          CLUSTER_NAME=$(cd terraform && terraform output -raw cluster_name)
+          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1 --kubeconfig ~/.kube/config
           
           # Wait a moment for deployment to start
           sleep 10
