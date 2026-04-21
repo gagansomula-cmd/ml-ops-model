@@ -168,54 +168,89 @@ jobs:
 
       - name: Apply aws-auth ConfigMap for GitHub Actions Role
         run: |
-          echo "=== Applying aws-auth ConfigMap ==="
+          echo "=== Applying aws-auth ConfigMap (CRITICAL STEP) ==="
           
           CLUSTER_NAME=$(cd terraform && terraform output -raw cluster_name)
           echo "Cluster: $CLUSTER_NAME"
           
-          # Wait for cluster to be fully ready
-          echo "Waiting for cluster API to be ready..."
-          sleep 15
+          # Wait for cluster to be fully ready (extended wait)
+          echo ""
+          echo "Waiting for cluster API to be fully ready..."
+          for i in {1..30}; do
+            echo "  Attempt $i/30..."
+            if aws eks describe-cluster --name "$CLUSTER_NAME" --region us-east-1 --query cluster.status --output text 2>/dev/null | grep -q "ACTIVE"; then
+              echo "✅ Cluster is ACTIVE"
+              break
+            fi
+            sleep 5
+          done
           
           # Configure kubectl
-          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1
-          
-          # Check if aws-auth ConfigMap exists
           echo ""
-          echo "Checking current aws-auth ConfigMap..."
-          if kubectl get configmap aws-auth -n kube-system 2>/dev/null; then
-            echo "✅ aws-auth ConfigMap already exists"
-            
-            # Show current content
+          echo "Configuring kubectl..."
+          mkdir -p ~/.kube
+          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1 --kubeconfig ~/.kube/config
+          
+          export KUBECONFIG="$HOME/.kube/config"
+          
+          # Wait for API to be responsive
+          echo "Waiting for Kubernetes API to be responsive..."
+          for i in {1..30}; do
+            echo "  Attempt $i/30..."
+            if kubectl cluster-info 2>/dev/null | grep -q "Kubernetes control plane"; then
+              echo "✅ API is responsive"
+              break
+            fi
+            sleep 5
+          done
+          
+          # Apply the aws-auth ConfigMap (MUST EXIST)
+          if [ ! -f "terraform/aws-auth-configmap.yaml" ]; then
             echo ""
-            echo "Current mapRoles:"
-            kubectl get configmap aws-auth -n kube-system -o jsonpath='{.data.mapRoles}' | head -20
-          else
-            echo "⚠️  aws-auth ConfigMap not found, will be created on first kubectl apply"
+            echo "❌ CRITICAL ERROR: aws-auth-configmap.yaml not found!"
+            echo "Expected at: terraform/aws-auth-configmap.yaml"
+            ls -la terraform/ | grep -i auth || echo "File not found in terraform directory"
+            exit 1
           fi
           
-          # Apply the aws-auth ConfigMap if it exists
-          if [ -f "aws-auth-configmap.yaml" ]; then
+          echo ""
+          echo "Applying aws-auth ConfigMap from Terraform output..."
+          kubectl apply -f terraform/aws-auth-configmap.yaml
+          
+          APPLY_EXIT=$?
+          if [ $APPLY_EXIT -ne 0 ]; then
             echo ""
-            echo "Applying aws-auth ConfigMap from Terraform..."
-            kubectl apply -f aws-auth-configmap.yaml
-            
-            echo ""
-            echo "✅ aws-auth ConfigMap applied"
-            
-            # Verify GitHub Actions role is in the mapping
-            echo ""
-            echo "Verifying GitHub Actions role mapping..."
-            kubectl get configmap aws-auth -n kube-system -o jsonpath='{.data.mapRoles}' | grep "github-actions" && echo "✅ GitHub Actions role is mapped" || echo "⚠️  GitHub Actions role not yet visible"
-          else
-            echo "⚠️  aws-auth-configmap.yaml not found in workspace"
-            echo "Note: You may need to manually apply the aws-auth ConfigMap"
-            echo "Instructions:"
-            echo "  1. Run: aws eks update-kubeconfig --name $CLUSTER_NAME --region us-east-1"
-            echo "  2. Check terraform/aws-auth-configmap.yaml for the ConfigMap"
-            echo "  3. Apply with: kubectl apply -f aws-auth-configmap.yaml"
+            echo "❌ ERROR: Failed to apply aws-auth ConfigMap"
+            exit 1
           fi
-        continue-on-error: true
+          
+          # Verify aws-auth ConfigMap was applied
+          echo ""
+          echo "Verifying aws-auth ConfigMap..."
+          for i in {1..10}; do
+            echo "  Verification attempt $i/10..."
+            if kubectl get configmap aws-auth -n kube-system 2>/dev/null; then
+              echo "✅ aws-auth ConfigMap exists"
+              break
+            fi
+            sleep 3
+          done
+          
+          # Verify GitHub Actions role is mapped
+          echo ""
+          echo "Checking GitHub Actions role mapping..."
+          ROLE_MAPPING=$(kubectl get configmap aws-auth -n kube-system -o jsonpath='{.data.mapRoles}' 2>/dev/null)
+          
+          if echo "$ROLE_MAPPING" | grep -q "system:masters"; then
+            echo "✅ GitHub Actions role is mapped to system:masters"
+          else
+            echo "⚠️  GitHub Actions role mapping not found. Showing current mappings:"
+            echo "$ROLE_MAPPING" | head -20
+          fi
+          
+          echo ""
+          echo "✅ aws-auth ConfigMap successfully applied and verified"
+        continue-on-error: false
 
       - name: Deploy Cert-Manager (KServe Prerequisite)
         run: |
@@ -445,35 +480,57 @@ jobs:
           
           # ===== Test kubectl with IAM role =====
           echo ""
-          echo "=== Testing kubectl Access ==="
+          echo "=== Testing kubectl Access (CRITICAL) ==="
           
           # Export kubeconfig for kubectl to use
           export KUBECONFIG="$KUBECONFIG_FILE"
           
-          # Test connectivity
-          if kubectl cluster-info 2>/dev/null | head -3; then
+          # Test connectivity - THIS MUST SUCCEED
+          echo "Testing cluster connectivity..."
+          if kubectl cluster-info 2>&1 | head -3; then
             echo "✅ kubectl successfully connected with IAM role"
           else
-            echo "⚠️  kubectl connection test failed"
-            
-            # Debug: show current context and auth
+            echo "❌ CRITICAL ERROR: kubectl connection failed"
             echo ""
-            echo "kubeconfig context:"
-            kubectl config current-context 2>/dev/null || echo "No context set"
+            echo "Debugging information:"
+            echo "kubeconfig exists: $([ -f "$KUBECONFIG_FILE" ] && echo "YES" || echo "NO")"
+            echo "kubeconfig size: $([ -f "$KUBECONFIG_FILE" ] && wc -c < "$KUBECONFIG_FILE" || echo "N/A")"
             
             echo ""
-            echo "Auth info from kubeconfig:"
-            kubectl config view --raw 2>/dev/null | grep -A3 'name: aws-cli' | head -5 || echo "Cannot read auth info"
+            echo "Current context:"
+            kubectl config current-context 2>&1 || echo "Failed to get context"
+            
+            echo ""
+            echo "Trying direct API test..."
+            kubectl get namespace default 2>&1 || echo "Direct API test failed"
+            
+            exit 1
           fi
           
           # Test token generation
           echo ""
           echo "=== Testing IAM Role Token Generation ==="
-          if aws eks get-token --cluster-name "$CLUSTER_NAME" --region "us-east-1" 2>/dev/null | jq -r '.status.token' | head -c 50; then
-            echo ""
+          if TOKEN=$(aws eks get-token --cluster-name "$CLUSTER_NAME" --region "us-east-1" 2>&1); then
             echo "✅ IAM role can generate EKS tokens"
           else
-            echo "⚠️  Token generation test failed"
+            echo "⚠️  Token generation test failed:"
+            echo "$TOKEN"
+          fi
+          
+          # Verify aws-auth ConfigMap is in place
+          echo ""
+          echo "=== Verifying aws-auth ConfigMap ==="
+          if kubectl get configmap aws-auth -n kube-system 2>&1 | grep -q "aws-auth"; then
+            echo "✅ aws-auth ConfigMap is present"
+            
+            # Show the mappings
+            echo ""
+            echo "Current role mappings:"
+            kubectl get configmap aws-auth -n kube-system -o jsonpath='{.data.mapRoles}' | grep -o '"rolearn":"[^"]*"' | head -5 || echo "Could not display mappings"
+          else
+            echo "❌ ERROR: aws-auth ConfigMap not found!"
+            echo "This means the GitHub Actions role is not mapped to Kubernetes"
+            exit 1
           fi
           
           # ===== Deploy with Helm using IAM role =====
@@ -482,6 +539,7 @@ jobs:
           
           if [ ! -d "helm/ml-model" ]; then
             echo "❌ Helm chart not found at helm/ml-model"
+            ls -la helm/ 2>/dev/null || echo "helm directory not found"
             exit 1
           fi
           
@@ -494,6 +552,14 @@ jobs:
           echo "=== Installing InferenceService via Helm ==="
           echo "Storage URI: $S3_MODEL"
           echo "S3 Bucket: $ML_BUCKET"
+          
+          # Create kserve namespace first
+          echo ""
+          echo "Creating kserve namespace..."
+          kubectl create namespace kserve --dry-run=client -o yaml | kubectl apply -f -
+          
+          echo ""
+          echo "Installing Helm release..."
           
           # Deploy using IAM role (credentials already configured by configure-aws-credentials)
           helm install sklearn-model helm/ml-model \
@@ -517,11 +583,15 @@ jobs:
             
             echo ""
             echo "=== Helm Release Status ==="
-            helm list -n kserve
+            helm list -n kserve || echo "Could not list releases"
             
             echo ""
             echo "=== InferenceService Status ==="
             kubectl get inferenceservice -n kserve 2>/dev/null || echo "Services still being created..."
+            
+            echo ""
+            echo "=== Kubernetes Namespace Status ==="
+            kubectl get namespace kserve
             
             echo ""
             echo "=== Next Steps ==="
@@ -538,11 +608,20 @@ jobs:
             # Try to get debugging info
             echo ""
             echo "=== Debugging Info ==="
+            echo "Helm releases:"
             helm list -n kserve 2>/dev/null || echo "Cannot list releases"
+            
+            echo ""
+            echo "Kubernetes namespaces:"
+            kubectl get namespaces 2>/dev/null || echo "Cannot list namespaces"
+            
+            echo ""
+            echo "Pods in kserve namespace:"
+            kubectl get pods -n kserve 2>/dev/null || echo "Cannot list pods"
             
             exit 1
           fi
-        continue-on-error: true
+        continue-on-error: false
 
       - name: Verify ML Model Deployment
         working-directory: ./
