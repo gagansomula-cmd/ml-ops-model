@@ -20,7 +20,9 @@ provider "aws" {
   region = var.aws_region
 }
 
-# Kubernetes and Helm providers configured for EKS cluster management
+# Kubernetes and Helm providers require EKS cluster to exist first
+# Uncomment after cluster is created: terraform apply -target=aws_eks_cluster.main
+/*
 provider "kubernetes" {
   host                   = aws_eks_cluster.main.endpoint
   cluster_ca_certificate = base64decode(aws_eks_cluster.main.certificate_authority[0].data)
@@ -34,6 +36,7 @@ provider "helm" {
     token                  = data.aws_eks_cluster_auth.cluster.token
   }
 }
+*/
 
 data "aws_eks_cluster_auth" "cluster" {
   name = aws_eks_cluster.main.id
