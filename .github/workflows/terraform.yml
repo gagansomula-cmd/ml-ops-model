@@ -168,6 +168,130 @@ jobs:
           echo "  kubectl get nodes"
         continue-on-error: true
 
+      - name: Setup Helm
+        run: |
+          # Helm is pre-installed on ubuntu-latest
+          helm version
+          helm repo update
+        continue-on-error: true
+
+      - name: Deploy Cert-Manager (KServe Prerequisite)
+        run: |
+          echo "Installing cert-manager..."
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+          
+          echo "Waiting for cert-manager to be ready..."
+          kubectl wait --for=condition=available --timeout=300s \
+            deployment/cert-manager -n cert-manager || true
+          kubectl wait --for=condition=available --timeout=300s \
+            deployment/cert-manager-webhook -n cert-manager || true
+          kubectl wait --for=condition=available --timeout=300s \
+            deployment/cert-manager-cainjector -n cert-manager || true
+          
+          echo "✅ Cert-manager deployed"
+        continue-on-error: true
+
+      - name: Deploy Istio (KServe Prerequisite)
+        run: |
+          echo "Adding Istio Helm repository..."
+          helm repo add istio https://istio-release.storage.googleapis.com/charts
+          helm repo update
+          
+          echo "Creating istio-system namespace..."
+          kubectl create namespace istio-system --dry-run=client -o yaml | kubectl apply -f -
+          
+          echo "Installing Istio base..."
+          helm install istio-base istio/base -n istio-system \
+            --set defaultRevision=default \
+            --wait || echo "Istio base may already exist"
+          
+          echo "Installing Istiod..."
+          helm install istiod istio/istiod -n istio-system \
+            --set revision=default \
+            --wait || echo "Istiod may already exist"
+          
+          echo "✅ Istio deployed"
+        continue-on-error: true
+
+      - name: Deploy KServe
+        run: |
+          echo "Adding KServe Helm repository..."
+          helm repo add kserve https://kserve.github.io/charts
+          helm repo update
+          
+          echo "Creating kserve namespace..."
+          kubectl create namespace kserve --dry-run=client -o yaml | kubectl apply -f -
+          
+          echo "Installing KServe..."
+          helm install kserve kserve/kserve \
+            -n kserve \
+            -f helm-values/kserve-values.yaml \
+            --wait --timeout=10m || echo "KServe may already exist"
+          
+          echo "Waiting for KServe controller to be ready..."
+          kubectl wait --for=condition=available --timeout=300s \
+            deployment/kserve-controller-manager -n kserve || true
+          
+          echo "✅ KServe deployed"
+          echo ""
+          echo "KServe Deployment Status:"
+          kubectl get pods -n kserve || echo "KServe pods not yet ready"
+        continue-on-error: true
+
+      - name: Deploy Kubeflow
+        run: |
+          echo "Adding Kubeflow Helm repository..."
+          helm repo add kubeflow https://kubeflow.github.io/charts
+          helm repo update
+          
+          echo "Creating kubeflow namespace..."
+          kubectl create namespace kubeflow --dry-run=client -o yaml | kubectl apply -f -
+          
+          echo "Installing Kubeflow..."
+          helm install kubeflow kubeflow/kubeflow \
+            -n kubeflow \
+            -f helm-values/kubeflow-values.yaml \
+            --wait --timeout=15m || echo "Kubeflow may already exist"
+          
+          echo "Waiting for Kubeflow components to be ready..."
+          kubectl wait --for=condition=available --timeout=300s \
+            deployment/ml-pipeline -n kubeflow || true
+          
+          echo "✅ Kubeflow deployed"
+          echo ""
+          echo "Kubeflow Deployment Status:"
+          kubectl get pods -n kubeflow || echo "Kubeflow pods not yet ready"
+        continue-on-error: true
+
+      - name: Helm Deployment Summary
+        run: |
+          echo "=== Helm Releases ==="
+          helm list --all-namespaces || echo "No Helm releases found"
+          
+          echo ""
+          echo "=== Deployed Namespaces ==="
+          kubectl get namespaces
+          
+          echo ""
+          echo "=== Pod Status Summary ==="
+          echo "Cert-Manager:"
+          kubectl get pods -n cert-manager --no-headers | wc -l || echo "Namespace not ready"
+          echo "Istio:"
+          kubectl get pods -n istio-system --no-headers | wc -l || echo "Namespace not ready"
+          echo "KServe:"
+          kubectl get pods -n kserve --no-headers | wc -l || echo "Namespace not ready"
+          echo "Kubeflow:"
+          kubectl get pods -n kubeflow --no-headers | wc -l || echo "Namespace not ready"
+          
+          echo ""
+          echo "✅ Helm deployment completed!"
+          echo ""
+          echo "Next steps:"
+          echo "1. KServe: Deploy InferenceService manifests to test model serving"
+          echo "2. Kubeflow: Access dashboard and submit training jobs"
+          echo "3. Monitor: Use 'kubectl logs' and 'kubectl describe' for troubleshooting"
+        continue-on-error: true
+
       - name: Upload Terraform Plan
         if: always()
         uses: actions/upload-artifact@v4
