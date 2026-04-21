@@ -128,30 +128,35 @@ jobs:
           CLUSTER_NAME=$(terraform output -raw cluster_name)
           
           echo "Verifying EKS cluster..."
+          echo ""
           
           # Verify cluster exists and is accessible via AWS API
-          echo "Cluster Status:"
+          echo "=== Cluster Status ==="
           aws eks describe-cluster \
             --name "$CLUSTER_NAME" \
             --region us-east-1 \
             --query 'cluster.[name,status,endpoint,version]' \
-            --output table
+            --output text | \
+            awk '{print "Name: " $1 "\nStatus: " $2 "\nEndpoint: " $3 "\nVersion: " $4}'
           
           echo ""
-          echo "Cluster Nodes:"
+          echo "=== Node Group Status ==="
           aws eks describe-nodegroup \
             --cluster-name "$CLUSTER_NAME" \
             --nodegroup-name "${CLUSTER_NAME}-node-group" \
             --region us-east-1 \
-            --query 'nodegroup.[nodegroupName,status,scalingConfig]' \
-            --output table || echo "Node group info not yet available"
+            --query 'nodegroup.[nodegroupName,status,scalingConfig.desiredSize,scalingConfig.minSize,scalingConfig.maxSize]' \
+            --output text | \
+            awk '{print "Name: " $1 "\nStatus: " $2 "\nDesired Size: " $3 "\nMin Size: " $4 "\nMax Size: " $5}' || \
+            echo "Node group info not yet available"
           
           echo ""
-          echo "EKS Add-ons:"
+          echo "=== EKS Add-ons ==="
           aws eks list-addons \
             --cluster-name "$CLUSTER_NAME" \
             --region us-east-1 \
-            --output table || echo "Add-ons info not yet available"
+            --query 'addons[*]' \
+            --output text || echo "Add-ons info not yet available"
           
           echo ""
           echo "✅ EKS Cluster is successfully deployed!"
