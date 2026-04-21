@@ -44,7 +44,7 @@ data "aws_iam_policy_document" "eks_s3_access" {
 # Create inline policy for node role to access models
 resource "aws_iam_role_policy" "eks_s3_access" {
   name   = "eks-s3-models-access"
-  role   = aws_iam_role.eks_node_role.id
+  role   = aws_iam_role.node.id
   policy = data.aws_iam_policy_document.eks_s3_access.json
 }
 
