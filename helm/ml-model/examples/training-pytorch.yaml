@@ -1,0 +1,71 @@
+# Example: PyTorch Training Job
+# Usage: helm install my-model ./helm/ml-model -f examples/training-pytorch.yaml
+
+inferenceService:
+  enabled: false
+
+trainingJob:
+  enabled: true
+  name: pytorch-training
+  namespace: kubeflow
+  type: pytorchjob
+  
+  image:
+    repository: pytorch/pytorch
+    tag: "2.0-cuda11.8-cudnn8-runtime"
+    pullPolicy: IfNotPresent
+  
+  script:
+    name: train_with_mlflow.py
+    path: /workspace/mlflow/
+  
+  master:
+    replicas: 1
+    resources:
+      limits:
+        cpu: "4"
+        memory: "8Gi"
+      requests:
+        cpu: "2"
+        memory: "4Gi"
+  
+  worker:
+    replicas: 2
+    resources:
+      limits:
+        cpu: "4"
+        memory: "8Gi"
+      requests:
+        cpu: "2"
+        memory: "4Gi"
+  
+  env:
+    - name: MLFLOW_TRACKING_URI
+      value: "http://mlflow-server:5000"
+    - name: AWS_REGION
+      value: "us-east-1"
+    - name: CUDA_VISIBLE_DEVICES
+      value: "0,1"
+    - name: EPOCHS
+      value: "100"
+    - name: BATCH_SIZE
+      value: "32"
+  
+  persistence:
+    enabled: true
+    storageClass: "gp2"
+    size: "20Gi"
+    mountPath: "/data"
+
+aws:
+  s3:
+    bucket: "ml-ops-models"
+    region: "us-east-1"
+    roleArn: "arn:aws:iam::ACCOUNT_ID:role/ml-ops-cluster-training"
+
+configMap:
+  enabled: true
+  data:
+    model_type: "pytorch_neural_network"
+    training_framework: "PyTorch"
+    distributed_training: "true"

@@ -1,0 +1,18 @@
+apiVersion: v2
+name: ml-model
+description: A Helm chart for deploying ML models with KServe on EKS
+type: application
+version: 1.0.0
+appVersion: "1.0"
+keywords:
+  - ml
+  - kserve
+  - kubernetes
+  - inference
+  - training
+home: https://github.com/yourusername/ml-ops
+sources:
+  - https://github.com/yourusername/ml-ops
+maintainers:
+  - name: ML Operations Team
+    email: ml-ops@example.com

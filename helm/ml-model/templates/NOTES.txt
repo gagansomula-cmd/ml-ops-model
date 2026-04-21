@@ -1,0 +1,41 @@
+1. Get the status of your ML deployment:
+  kubectl get inferenceservice -n {{ .Values.inferenceService.namespace }}
+  kubectl get pods -n {{ .Values.inferenceService.namespace }}
+
+2. Watch the deployment progress:
+  kubectl get pods -n {{ .Values.inferenceService.namespace }} -w
+
+3. Get the inference service endpoint:
+  kubectl get inferenceservice {{ .Values.inferenceService.name }} -n {{ .Values.inferenceService.namespace }} -o jsonpath='{.status.url}'
+
+4. Test the model prediction (after service is ready):
+  # For sklearn models:
+  curl -v -X POST http://<inference-service-endpoint>/v1/models/{{ .Values.inferenceService.name }}:predict \
+    -H "Content-Type: application/json" \
+    -d '{"instances": [[1.0, 2.0, 3.0]]}'
+
+5. View logs:
+  kubectl logs -n {{ .Values.inferenceService.namespace }} -l app.kubernetes.io/name=ml-model -f
+
+6. Check resource usage:
+  kubectl top pods -n {{ .Values.inferenceService.namespace }}
+
+{{- if .Values.trainingJob.enabled }}
+
+7. Monitor training job:
+  kubectl get {{ .Values.trainingJob.type }} -n {{ .Values.trainingJob.namespace }}
+  kubectl logs -n {{ .Values.trainingJob.namespace }} -l job-name={{ .Values.trainingJob.name }} -f
+
+{{- end }}
+
+8. Update model (re-deploy):
+  helm upgrade {{ .Release.Name }} ./helm/ml-model \
+    --values values.yaml \
+    --namespace {{ .Values.inferenceService.namespace }}
+
+9. Uninstall:
+  helm uninstall {{ .Release.Name }} -n {{ .Values.inferenceService.namespace }}
+
+For more information:
+  - KServe Docs: https://kserve.github.io/
+  - Kubeflow Docs: https://www.kubeflow.org/docs/

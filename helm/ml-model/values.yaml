@@ -1,0 +1,179 @@
+# ML Model Helm Chart Values
+# Configure your model deployment here
+
+# Global settings
+global:
+  projectName: ml-ops
+  region: us-east-1
+
+# Namespaces
+namespaces:
+  inference: kserve
+  training: kubeflow
+
+# Inference Service Configuration
+inferenceService:
+  enabled: true
+  name: linear-regression
+  namespace: kserve
+  
+  # Model configuration
+  model:
+    # Model name in the service
+    name: linear-regression
+    # Model format: sklearn, pytorch, tensorflow, xgboost, onnx
+    format: sklearn
+    # Path to model in S3
+    # Format: s3://bucket-name/path/to/model.pkl or model.joblib
+    storageUri: "s3://ml-ops-models/linear-regression/model.joblib"
+    # Model artifact path (local or S3)
+    artifactPath: "model_artifacts/linear_regression_model.json"
+  
+  # Resource limits
+  resources:
+    limits:
+      cpu: "1"
+      memory: "2Gi"
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+  
+  # Auto-scaling configuration
+  autoscaling:
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 80
+  
+  # Ingress configuration
+  ingress:
+    enabled: true
+    className: "istio"
+    hosts:
+      - host: "ml-model.example.com"
+        paths:
+          - path: /
+            pathType: Prefix
+  
+  # Service account with IAM role
+  serviceAccountName: kserve-models-sa
+  iamRoleArn: "arn:aws:iam::ACCOUNT_ID:role/ml-ops-cluster-kserve"
+
+# Training Job Configuration
+trainingJob:
+  enabled: false
+  name: model-training
+  namespace: kubeflow
+  
+  # Job type: pytorchjob, tfjob, mxjob, xgboostjob
+  type: pytorchjob
+  
+  # Image configuration
+  image:
+    repository: pytorch/pytorch
+    tag: "2.0-cuda11.8-cudnn8-runtime"
+    pullPolicy: IfNotPresent
+  
+  # Training script
+  script:
+    name: train_with_mlflow.py
+    path: /workspace/mlflow/
+  
+  # Master replica configuration
+  master:
+    replicas: 1
+    resources:
+      limits:
+        cpu: "4"
+        memory: "8Gi"
+      requests:
+        cpu: "2"
+        memory: "4Gi"
+  
+  # Worker replica configuration
+  worker:
+    replicas: 2
+    resources:
+      limits:
+        cpu: "4"
+        memory: "8Gi"
+      requests:
+        cpu: "2"
+        memory: "4Gi"
+  
+  # Parameter server (optional)
+  parameterServer:
+    enabled: false
+    replicas: 1
+  
+  # Environment variables
+  env:
+    - name: MLFLOW_TRACKING_URI
+      value: "http://mlflow-server:5000"
+    - name: AWS_REGION
+      value: "us-east-1"
+    - name: CUDA_VISIBLE_DEVICES
+      value: "0"
+  
+  # Persistent volume for training data
+  persistence:
+    enabled: false
+    storageClass: "gp2"
+    size: "10Gi"
+    mountPath: "/data"
+
+# Model Registry (MLflow)
+modelRegistry:
+  enabled: true
+  endpoint: "http://mlflow-server:5000"
+  artifactStore: "s3://ml-ops-mlflow-artifacts"
+
+# AWS S3 Configuration
+aws:
+  s3:
+    bucket: "ml-ops-models"
+    region: "us-east-1"
+    # IAM role for S3 access
+    roleArn: "arn:aws:iam::ACCOUNT_ID:role/ml-ops-cluster-s3-access"
+
+# ConfigMap for model metadata
+configMap:
+  enabled: true
+  data:
+    model_type: "linear_regression"
+    model_version: "1.0.0"
+    training_framework: "scikit-learn"
+    feature_names: "feature_1,feature_2,feature_3"
+
+# Secrets (base64 encoded values)
+secrets:
+  enabled: false
+  # AWS credentials (use IAM roles instead)
+  awsAccessKeyId: ""
+  awsSecretAccessKey: ""
+  # MLflow credentials
+  mlflowUsername: ""
+  mlflowPassword: ""
+
+# Monitoring and Logging
+monitoring:
+  enabled: true
+  prometheus:
+    enabled: true
+    port: 8000
+  
+  logging:
+    enabled: true
+    level: "INFO"
+
+# Pod security
+podSecurityPolicy:
+  enabled: true
+  
+# Network policies
+networkPolicy:
+  enabled: false
+  ingress:
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            name: kubeflow

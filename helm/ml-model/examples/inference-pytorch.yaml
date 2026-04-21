@@ -1,0 +1,42 @@
+# Example: PyTorch Model Inference
+# Usage: helm install my-model ./helm/ml-model -f examples/inference-pytorch.yaml
+
+inferenceService:
+  enabled: true
+  name: pytorch-model
+  namespace: kserve
+  
+  model:
+    name: pytorch-model
+    format: pytorch
+    storageUri: "s3://ml-ops-models/pytorch/model.pt"
+  
+  resources:
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+  
+  autoscaling:
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+
+trainingJob:
+  enabled: false
+
+aws:
+  s3:
+    bucket: "ml-ops-models"
+    region: "us-east-1"
+    roleArn: "arn:aws:iam::ACCOUNT_ID:role/ml-ops-cluster-s3-access"
+
+configMap:
+  enabled: true
+  data:
+    model_type: "neural_network"
+    model_version: "2.0.0"
+    training_framework: "PyTorch"
+    model_input_shape: "[1, 3, 224, 224]"

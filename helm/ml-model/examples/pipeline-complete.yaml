@@ -1,0 +1,112 @@
+# Example: Complete ML Pipeline - Training + Inference
+# Usage: helm install my-model ./helm/ml-model -f examples/pipeline-complete.yaml
+
+inferenceService:
+  enabled: true
+  name: production-model
+  namespace: kserve
+  
+  model:
+    name: production-model
+    format: sklearn
+    storageUri: "s3://ml-ops-models/production/model.pkl"
+  
+  resources:
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+  
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 75
+  
+  serviceAccountName: kserve-models-sa
+  iamRoleArn: "arn:aws:iam::ACCOUNT_ID:role/ml-ops-cluster-kserve"
+
+trainingJob:
+  enabled: true
+  name: model-training
+  namespace: kubeflow
+  type: pytorchjob
+  
+  image:
+    repository: pytorch/pytorch
+    tag: "2.0-cuda11.8-cudnn8-runtime"
+    pullPolicy: IfNotPresent
+  
+  script:
+    name: train_with_mlflow.py
+    path: /workspace/mlflow/
+  
+  master:
+    replicas: 1
+    resources:
+      limits:
+        cpu: "4"
+        memory: "8Gi"
+      requests:
+        cpu: "2"
+        memory: "4Gi"
+  
+  worker:
+    replicas: 4
+    resources:
+      limits:
+        cpu: "4"
+        memory: "8Gi"
+      requests:
+        cpu: "2"
+        memory: "4Gi"
+  
+  env:
+    - name: MLFLOW_TRACKING_URI
+      value: "http://mlflow-server.kubeflow:5000"
+    - name: AWS_REGION
+      value: "us-east-1"
+    - name: EPOCHS
+      value: "200"
+    - name: BATCH_SIZE
+      value: "64"
+    - name: LEARNING_RATE
+      value: "0.001"
+  
+  persistence:
+    enabled: true
+    storageClass: "gp2"
+    size: "50Gi"
+    mountPath: "/data"
+
+modelRegistry:
+  enabled: true
+  endpoint: "http://mlflow-server.kubeflow:5000"
+  artifactStore: "s3://ml-ops-mlflow-artifacts"
+
+aws:
+  s3:
+    bucket: "ml-ops-models"
+    region: "us-east-1"
+    roleArn: "arn:aws:iam::ACCOUNT_ID:role/ml-ops-cluster-full-access"
+
+configMap:
+  enabled: true
+  data:
+    model_type: "ensemble"
+    model_version: "3.0.0"
+    training_framework: "PyTorch"
+    inference_framework: "sklearn"
+    production_ready: "true"
+    team: "ml-ops"
+
+monitoring:
+  enabled: true
+  prometheus:
+    enabled: true
+    port: 8000
+  
+  logging:
+    enabled: true
+    level: "INFO"

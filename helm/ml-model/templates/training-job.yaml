@@ -1,0 +1,138 @@
+{{- if .Values.trainingJob.enabled }}
+{{- if eq .Values.trainingJob.type "pytorchjob" }}
+apiVersion: kubeflow.org/v1
+kind: PyTorchJob
+metadata:
+  name: {{ .Values.trainingJob.name }}
+  namespace: {{ .Values.trainingJob.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ include "ml-model.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  pytorchReplicaSpecs:
+    Master:
+      replicas: {{ .Values.trainingJob.master.replicas }}
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: {{ include "ml-model.name" . }}
+            role: master
+        spec:
+          containers:
+          - name: pytorch
+            image: {{ .Values.trainingJob.image.repository }}:{{ .Values.trainingJob.image.tag }}
+            imagePullPolicy: {{ .Values.trainingJob.image.pullPolicy }}
+            command:
+              - python
+              - {{ .Values.trainingJob.script.path }}{{ .Values.trainingJob.script.name }}
+            {{- if .Values.trainingJob.env }}
+            env:
+              {{- toYaml .Values.trainingJob.env | nindent 12 }}
+            {{- end }}
+            resources:
+              {{- toYaml .Values.trainingJob.master.resources | nindent 12 }}
+            {{- if .Values.trainingJob.persistence.enabled }}
+            volumeMounts:
+            - name: training-data
+              mountPath: {{ .Values.trainingJob.persistence.mountPath }}
+            {{- end }}
+          restartPolicy: OnFailure
+          {{- if .Values.trainingJob.persistence.enabled }}
+          volumes:
+          - name: training-data
+            persistentVolumeClaim:
+              claimName: {{ .Values.trainingJob.name }}-pvc
+          {{- end }}
+    
+    Worker:
+      replicas: {{ .Values.trainingJob.worker.replicas }}
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: {{ include "ml-model.name" . }}
+            role: worker
+        spec:
+          containers:
+          - name: pytorch
+            image: {{ .Values.trainingJob.image.repository }}:{{ .Values.trainingJob.image.tag }}
+            imagePullPolicy: {{ .Values.trainingJob.image.pullPolicy }}
+            command:
+              - python
+              - {{ .Values.trainingJob.script.path }}{{ .Values.trainingJob.script.name }}
+            {{- if .Values.trainingJob.env }}
+            env:
+              {{- toYaml .Values.trainingJob.env | nindent 12 }}
+            {{- end }}
+            resources:
+              {{- toYaml .Values.trainingJob.worker.resources | nindent 12 }}
+            {{- if .Values.trainingJob.persistence.enabled }}
+            volumeMounts:
+            - name: training-data
+              mountPath: {{ .Values.trainingJob.persistence.mountPath }}
+            {{- end }}
+          restartPolicy: OnFailure
+          {{- if .Values.trainingJob.persistence.enabled }}
+          volumes:
+          - name: training-data
+            persistentVolumeClaim:
+              claimName: {{ .Values.trainingJob.name }}-pvc
+          {{- end }}
+
+{{- else if eq .Values.trainingJob.type "tfjob" }}
+apiVersion: kubeflow.org/v1
+kind: TFJob
+metadata:
+  name: {{ .Values.trainingJob.name }}
+  namespace: {{ .Values.trainingJob.namespace }}
+spec:
+  tfReplicaSpecs:
+    Chief:
+      replicas: 1
+      template:
+        spec:
+          containers:
+          - name: tensorflow
+            image: {{ .Values.trainingJob.image.repository }}:{{ .Values.trainingJob.image.tag }}
+            resources:
+              {{- toYaml .Values.trainingJob.master.resources | nindent 14 }}
+    
+    Worker:
+      replicas: {{ .Values.trainingJob.worker.replicas }}
+      template:
+        spec:
+          containers:
+          - name: tensorflow
+            image: {{ .Values.trainingJob.image.repository }}:{{ .Values.trainingJob.image.tag }}
+            resources:
+              {{- toYaml .Values.trainingJob.worker.resources | nindent 14 }}
+
+{{- else if eq .Values.trainingJob.type "xgboostjob" }}
+apiVersion: kubeflow.org/v1
+kind: XGBoostJob
+metadata:
+  name: {{ .Values.trainingJob.name }}
+  namespace: {{ .Values.trainingJob.namespace }}
+spec:
+  xgbReplicaSpecs:
+    Master:
+      replicas: 1
+      template:
+        spec:
+          containers:
+          - name: xgboost
+            image: {{ .Values.trainingJob.image.repository }}:{{ .Values.trainingJob.image.tag }}
+            resources:
+              {{- toYaml .Values.trainingJob.master.resources | nindent 14 }}
+    
+    Worker:
+      replicas: {{ .Values.trainingJob.worker.replicas }}
+      template:
+        spec:
+          containers:
+          - name: xgboost
+            image: {{ .Values.trainingJob.image.repository }}:{{ .Values.trainingJob.image.tag }}
+            resources:
+              {{- toYaml .Values.trainingJob.worker.resources | nindent 14 }}
+
+{{- end }}
+{{- end }}

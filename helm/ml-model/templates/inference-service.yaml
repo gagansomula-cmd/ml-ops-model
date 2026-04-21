@@ -1,0 +1,50 @@
+{{- if .Values.inferenceService.enabled }}
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: {{ .Values.inferenceService.name }}
+  namespace: {{ .Values.inferenceService.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ include "ml-model.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/version: {{ .Chart.AppVersion }}
+spec:
+  serviceAccountName: {{ .Values.inferenceService.serviceAccountName }}
+  
+  predictor:
+    {{- if eq .Values.inferenceService.model.format "sklearn" }}
+    sklearn:
+      protocolVersion: v2
+      storageUri: {{ .Values.inferenceService.model.storageUri }}
+      resources:
+        {{- toYaml .Values.inferenceService.resources | nindent 8 }}
+    {{- else if eq .Values.inferenceService.model.format "pytorch" }}
+    pytorch:
+      protocolVersion: v2
+      storageUri: {{ .Values.inferenceService.model.storageUri }}
+      resources:
+        {{- toYaml .Values.inferenceService.resources | nindent 8 }}
+    {{- else if eq .Values.inferenceService.model.format "tensorflow" }}
+    tensorflow:
+      protocolVersion: v2
+      storageUri: {{ .Values.inferenceService.model.storageUri }}
+      resources:
+        {{- toYaml .Values.inferenceService.resources | nindent 8 }}
+    {{- else if eq .Values.inferenceService.model.format "xgboost" }}
+    xgboost:
+      protocolVersion: v2
+      storageUri: {{ .Values.inferenceService.model.storageUri }}
+      resources:
+        {{- toYaml .Values.inferenceService.resources | nindent 8 }}
+    {{- else if eq .Values.inferenceService.model.format "onnx" }}
+    onnx:
+      protocolVersion: v2
+      storageUri: {{ .Values.inferenceService.model.storageUri }}
+      resources:
+        {{- toYaml .Values.inferenceService.resources | nindent 8 }}
+    {{- end }}
+  
+  {{- if .Values.inferenceService.autoscaling.enabled }}
+  autoscalerClass: keda.sh/keda
+  {{- end }}
+{{- end }}

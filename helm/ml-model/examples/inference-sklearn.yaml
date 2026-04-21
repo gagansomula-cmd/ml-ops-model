@@ -1,0 +1,41 @@
+# Example: Simple Sklearn Model Inference Only
+# Usage: helm install my-model ./helm/ml-model -f examples/inference-sklearn.yaml
+
+inferenceService:
+  enabled: true
+  name: sklearn-model
+  namespace: kserve
+  
+  model:
+    name: sklearn-model
+    format: sklearn
+    storageUri: "s3://ml-ops-models/sklearn/iris-classifier.pkl"
+  
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+  
+  autoscaling:
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 80
+
+trainingJob:
+  enabled: false
+
+aws:
+  s3:
+    bucket: "ml-ops-models"
+    region: "us-east-1"
+    roleArn: "arn:aws:iam::ACCOUNT_ID:role/ml-ops-cluster-s3-access"
+
+configMap:
+  enabled: true
+  data:
+    model_type: "linear_regression"
+    model_version: "1.0.0"
+    training_framework: "scikit-learn"

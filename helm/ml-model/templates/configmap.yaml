@@ -1,0 +1,17 @@
+{{- if .Values.configMap.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.inferenceService.name }}-config
+  namespace: {{ .Values.inferenceService.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ include "ml-model.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  {{- range $key, $value := .Values.configMap.data }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  # Additional metadata
+  model_name: {{ .Values.inferenceService.name }}
+  deployment_time: {{ now | date "2006-01-02T15:04:05Z07:00" }}
+{{- end }}

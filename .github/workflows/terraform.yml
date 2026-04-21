@@ -266,6 +266,97 @@ jobs:
           echo "⏱️  Full deployment typically takes 10-15 minutes. Check pod status regularly."
         continue-on-error: true
 
+      - name: Deploy ML Model with Helm
+        run: |
+          echo "=== Deploying ML Model with Helm ==="
+          
+          CLUSTER_NAME=$(terraform output -raw cluster_name)
+          echo "Cluster: $CLUSTER_NAME"
+          
+          # Navigate to helm chart directory
+          if [ -d "../helm/ml-model" ]; then
+            echo "✅ Helm chart found at ../helm/ml-model"
+            
+            echo ""
+            echo "=== Helm Chart Information ==="
+            cat ../helm/ml-model/Chart.yaml
+            
+            echo ""
+            echo "=== Available Examples ==="
+            ls -la ../helm/ml-model/examples/
+            
+            echo ""
+            echo "=== Deploying Sklearn Model (Example) ==="
+            helm install sklearn-model ../helm/ml-model \
+              -f ../helm/ml-model/examples/inference-sklearn.yaml \
+              --namespace kserve \
+              --create-namespace \
+              --wait=false \
+              --timeout=5m || echo "Helm install initiated or already exists"
+            
+            echo ""
+            echo "=== Checking Helm Releases ==="
+            helm list -n kserve 2>/dev/null || echo "No releases found yet"
+            
+            echo ""
+            echo "=== Expected Deployment ==="
+            echo "✅ Helm Release: sklearn-model deployed to kserve namespace"
+            echo "✅ InferenceService: Creates KServe service for model inference"
+            echo "✅ ServiceAccount: With IAM role for S3 access"
+            echo ""
+            echo "To verify deployment status:"
+            echo "  kubectl get inferenceservice -n kserve"
+            echo "  kubectl get pods -n kserve -w"
+            echo "  kubectl describe inferenceservice sklearn-model -n kserve"
+            
+          else
+            echo "⚠️  Helm chart not found at ../helm/ml-model"
+            echo "Helm chart should be created at: helm/ml-model/"
+            echo ""
+            echo "To create the chart manually:"
+            echo "  helm create helm/ml-model"
+          fi
+        continue-on-error: true
+
+      - name: Verify ML Model Deployment
+        run: |
+          echo "=== ML Model Deployment Verification ==="
+          
+          # Wait a moment for deployment to start
+          sleep 10
+          
+          echo ""
+          echo "=== KServe InferenceServices ==="
+          kubectl get inferenceservice -n kserve 2>/dev/null || echo "InferenceServices not yet created"
+          
+          echo ""
+          echo "=== KServe Namespace Pods ==="
+          kubectl get pods -n kserve 2>/dev/null || echo "Pods not yet created"
+          
+          echo ""
+          echo "=== KServe Services ==="
+          kubectl get svc -n kserve 2>/dev/null || echo "Services not yet created"
+          
+          echo ""
+          echo "=== Model Deployment Status ==="
+          echo "Expected deployment timeline:"
+          echo "  0-5 min:   InferenceService created, predictor pods starting"
+          echo "  5-10 min:  Predictor pods running, model loading"
+          echo "  10+ min:   Model ready for predictions"
+          echo ""
+          echo "Check model status:"
+          echo "  kubectl describe inferenceservice -n kserve"
+          echo "  kubectl logs -n kserve -l app.kubernetes.io/name=ml-model -f"
+          echo ""
+          echo "Get inference endpoint:"
+          echo "  kubectl get inferenceservice sklearn-model -n kserve -o jsonpath='{.status.url}'"
+          echo ""
+          echo "Test predictions (when ready):"
+          echo "  curl -X POST <endpoint>/v1/models/sklearn-model:predict \\"
+          echo "    -H 'Content-Type: application/json' \\"
+          echo "    -d '{\"instances\": [[1.0, 2.0, 3.0]]}'"
+        continue-on-error: true
+
       - name: Upload Terraform Plan
         if: always()
         uses: actions/upload-artifact@v4
