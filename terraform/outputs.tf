@@ -49,6 +49,11 @@ output "node_group_id" {
   value       = aws_eks_node_group.main.id
 }
 
+output "node_role_arn" {
+  description = "ARN of the EKS node IAM role"
+  value       = aws_iam_role.node.arn
+}
+
 output "kubeflow_namespace" {
   description = "Kubeflow namespace"
   value       = var.enable_kubeflow ? kubernetes_namespace.kubeflow[0].metadata[0].name : null

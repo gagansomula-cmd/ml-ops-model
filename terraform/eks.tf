@@ -207,35 +207,3 @@ resource "aws_iam_role_policy_attachment" "vpc_cni" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
   role       = aws_iam_role.vpc_cni.name
 }
-
-# Grant GitHubActionsRole access to EKS cluster via aws-auth ConfigMap
-resource "kubernetes_config_map" "aws_auth" {
-  metadata {
-    name      = "aws-auth"
-    namespace = "kube-system"
-  }
-
-  data = {
-    mapRoles = yamlencode(concat(
-      [
-        {
-          rolearn  = aws_iam_role.node.arn
-          username = "system:node:{{EC2PrivateDNSName}}"
-          groups   = ["system:bootstrappers", "system:nodes"]
-        }
-      ],
-      try(
-        [
-          {
-            rolearn  = aws_iam_role.github_actions.arn
-            username = "github-actions"
-            groups   = ["system:masters"]
-          }
-        ],
-        []
-      )
-    ))
-  }
-
-  depends_on = [aws_eks_cluster.main]
-}

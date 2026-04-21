@@ -104,6 +104,27 @@ jobs:
           aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1
         continue-on-error: true
 
+      - name: Configure aws-auth ConfigMap
+        run: |
+          # Get the GitHub Actions role ARN from outputs
+          GITHUB_ROLE_ARN=$(terraform output -raw github_actions_role_arn)
+          
+          echo "Configuring aws-auth ConfigMap..."
+          echo "GitHub Actions Role: $GITHUB_ROLE_ARN"
+          
+          # Create aws-auth ConfigMap with GitHub Actions role
+          kubectl create configmap aws-auth \
+            --from-literal=mapRoles='- rolearn: '"$GITHUB_ROLE_ARN"'
+  username: github-actions
+  groups:
+  - system:masters' \
+            -n kube-system \
+            --dry-run=client -o yaml | kubectl apply -f -
+          
+          # Verify
+          kubectl get configmap aws-auth -n kube-system -o yaml
+        continue-on-error: true
+
       - name: Verify EKS Deployment
         run: |
           echo "Testing kubectl connectivity (with retries)..."
