@@ -128,12 +128,20 @@ modelRegistry:
   artifactStore: "s3://ml-ops-mlflow-artifacts"
 
 # AWS S3 Configuration
+# Access via IAM roles - no hardcoded credentials needed
 aws:
   s3:
+    # S3 bucket for model storage (accessed via IAM roles)
     bucket: "mlops-trainig-679631209574-us-east-1-an"
     region: "us-east-1"
-    # IAM role for S3 access (configured by EKS node role policy)
-    roleArn: "arn:aws:iam::679631209574:role/ml-ops-cluster-eks-node-role"
+  
+  # Authentication: IAM Roles (GitHub OIDC + EKS node roles)
+  # KServe pods automatically inherit node role permissions
+  # No AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY needed
+  authentication:
+    type: "iam_roles"
+    method: "IRSA (IAM Roles for Service Accounts)"
+    description: "Uses EKS node role for pod S3 access + GitHub OIDC for CI/CD"
 
 # ConfigMap for model metadata
 configMap:

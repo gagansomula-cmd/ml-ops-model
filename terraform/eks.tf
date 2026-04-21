@@ -207,3 +207,66 @@ resource "aws_iam_role_policy_attachment" "vpc_cni" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
   role       = aws_iam_role.vpc_cni.name
 }
+
+# ===== EKS Access Management for GitHub Actions Role =====
+# Allow GitHubActionsRole to access the EKS cluster using aws-auth ConfigMap
+
+# Data source to reference the GitHub Actions role
+data "aws_iam_role" "github_actions" {
+  name = "GitHubActionsRole"
+
+  depends_on = [aws_eks_cluster.main]
+}
+
+# Create a local_file to generate the aws-auth ConfigMap with GitHub Actions role
+# This ConfigMap must be applied to the cluster to allow GitHub Actions role to use kubectl
+resource "local_file" "aws_auth_configmap" {
+  filename = "${path.module}/../aws-auth-configmap.yaml"
+  
+  content = <<-EOT
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aws-auth
+  namespace: kube-system
+data:
+  mapRoles: |
+    - rolearn: ${aws_iam_role.node.arn}
+      username: system:node:{{EC2PrivateDNSName}}
+      groups:
+        - system:bootstrappers
+        - system:nodes
+    - rolearn: ${data.aws_iam_role.github_actions.arn}
+      username: github-actions
+      groups:
+        - system:masters
+  mapUsers: |
+    []
+  mapAccounts: |
+    []
+EOT
+
+  depends_on = [aws_eks_cluster.main]
+}
+
+# Output the aws-auth ConfigMap content and application instructions
+output "aws_auth_instructions" {
+  description = "Instructions for applying the aws-auth ConfigMap to allow GitHub Actions role access"
+  value = <<-EOT
+To allow GitHub Actions role to access the EKS cluster, apply the aws-auth ConfigMap:
+
+1. Ensure you have kubectl configured for the cluster:
+   aws eks update-kubeconfig --name ${aws_eks_cluster.main.name} --region ${var.aws_region}
+
+2. Apply the aws-auth ConfigMap:
+   kubectl apply -f aws-auth-configmap.yaml
+
+3. Verify the mapping:
+   kubectl get configmap aws-auth -n kube-system -o yaml
+
+The aws-auth ConfigMap has been saved to: aws-auth-configmap.yaml
+
+GitHub Actions Role ARN: ${data.aws_iam_role.github_actions.arn}
+Node Role ARN: ${aws_iam_role.node.arn}
+EOT
+}

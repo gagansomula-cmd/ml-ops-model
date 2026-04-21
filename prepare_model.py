@@ -2,6 +2,12 @@
 """
 Prepare sklearn model for KServe deployment.
 Converts JSON model config to sklearn pickle format and uploads to S3.
+
+AWS Credentials:
+  - Uses IAM roles automatically (no hardcoded AWS keys needed)
+  - In GitHub Actions: Credentials provided by OIDC + GitHub Actions IAM role
+  - In AWS: Uses IAM role credentials from EC2/EKS instance profile
+  - Locally: Uses AWS CLI configured credentials or AWS_PROFILE environment variable
 """
 
 import json
@@ -46,9 +52,18 @@ def prepare_sklearn_model(json_path: str, output_path: str = "model_artifacts/mo
 
 def upload_to_s3(local_path: str, s3_bucket: str, s3_key: str, region: str = "us-east-1"):
     """
-    Upload model to S3 bucket.
+    Upload model to S3 bucket using IAM role credentials.
+    
+    Credentials are automatically obtained from:
+    - GitHub Actions OIDC + IAM role (in CI/CD)
+    - Instance profile (in AWS EC2/EKS)
+    - AWS CLI configuration (locally)
+    
+    No hardcoded AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY needed.
     """
     try:
+        # boto3 automatically uses IAM role credentials
+        # No explicit credentials parameter needed
         s3_client = boto3.client('s3', region_name=region)
         
         # First verify bucket exists and is accessible
@@ -61,6 +76,17 @@ def upload_to_s3(local_path: str, s3_bucket: str, s3_key: str, region: str = "us
             return False
         except Exception as e:
             print(f"⚠️  Cannot access bucket '{s3_bucket}': {e}")
+            print("")
+            print("Possible issues with IAM role permissions:")
+            print("1. GitHub Actions IAM role lacks S3 permissions:")
+            print("   - Check terraform/github-oidc.tf has s3-models-access policy attached")
+            print("")
+            print("2. Running locally? Ensure AWS credentials are configured:")
+            print("   - aws configure")
+            print("   - Or set AWS_PROFILE environment variable")
+            print("")
+            print("3. In EKS? Check node role has S3 permissions:")
+            print("   - terraform/s3-models.tf should attach eks-s3-models-access policy")
             return False
         
         print(f"Uploading {local_path} to s3://{s3_bucket}/{s3_key}")
@@ -71,15 +97,16 @@ def upload_to_s3(local_path: str, s3_bucket: str, s3_key: str, region: str = "us
     except Exception as e:
         print(f"❌ Failed to upload to S3: {e}")
         print("")
-        print("Options to fix:")
-        print("1. Ensure S3 bucket exists (created by Terraform):")
+        print("Troubleshooting IAM role permissions:")
+        print("1. Verify IAM role has S3 access policy:")
+        print("   - GitHub Actions: Check aws_iam_role_policy 'github-actions-s3-models-access'")
+        print("   - EKS pods: Check aws_iam_role_policy 'eks-s3-models-access'")
+        print("")
+        print("2. Re-apply Terraform to add missing permissions:")
         print("   cd terraform && terraform apply")
         print("")
-        print("2. Or upload the model manually:")
+        print("3. Or upload manually using AWS CLI (requires local AWS credentials):")
         print(f"   aws s3 cp {local_path} s3://{s3_bucket}/{s3_key}")
-        print("")
-        print("3. Or use a different bucket you have access to:")
-        print(f"   python3 prepare_model.py --s3-bucket your-bucket --upload-s3")
         return False
 
 def main():
@@ -116,6 +143,16 @@ def main():
     )
     
     args = parser.parse_args()
+    
+    print("="*60)
+    print("Model Preparation with IAM Role-based S3 Access")
+    print("="*60)
+    print("")
+    print("AWS Credentials:")
+    print("  - GitHub Actions: OIDC + GitHubActionsRole (no hardcoded keys)")
+    print("  - AWS/EKS: Instance profile / node role (no hardcoded keys)")
+    print("  - Locally: AWS CLI configuration (aws configure)")
+    print("")
     
     # Prepare the model
     if not prepare_sklearn_model(args.json_path, args.output):
