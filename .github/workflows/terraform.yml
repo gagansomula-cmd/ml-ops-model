@@ -67,7 +67,6 @@ jobs:
         id: eks
         run: |
           echo "Waiting for cluster to be ready..."
-          sleep 30
           
           CLUSTER_NAME=$(terraform output -raw cluster_name 2>&1)
           if [[ "$CLUSTER_NAME" == *"Error"* ]] || [ -z "$CLUSTER_NAME" ]; then
@@ -78,11 +77,21 @@ jobs:
           
           echo "Cluster name: $CLUSTER_NAME"
           
-          # Verify cluster exists
-          if ! aws eks describe-cluster --name "$CLUSTER_NAME" --region us-east-1 &>/dev/null; then
-            echo "ERROR: Cluster $CLUSTER_NAME not found in AWS"
-            exit 1
-          fi
+          # Wait for cluster to be ACTIVE (up to 10 minutes)
+          echo "Waiting for cluster to be in ACTIVE state..."
+          for i in {1..60}; do
+            STATUS=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region us-east-1 --query cluster.status --output text)
+            echo "Cluster status: $STATUS"
+            if [ "$STATUS" = "ACTIVE" ]; then
+              echo "Cluster is ACTIVE"
+              break
+            fi
+            if [ $i -eq 60 ]; then
+              echo "ERROR: Cluster failed to reach ACTIVE state within 10 minutes"
+              exit 1
+            fi
+            sleep 10
+          done
           
           ENDPOINT=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region us-east-1 --query cluster.endpoint --output text)
           echo "Cluster endpoint: $ENDPOINT"
@@ -97,10 +106,24 @@ jobs:
 
       - name: Verify EKS Deployment
         run: |
-          echo "Testing kubectl connectivity..."
-          kubectl cluster-info || echo "Cluster info failed, but continuing..."
-          kubectl get nodes || echo "Note: Nodes not yet visible, EKS may still be initializing"
-          kubectl get pods -A || echo "Pods not yet visible"
+          echo "Testing kubectl connectivity (with retries)..."
+          for i in {1..5}; do
+            echo "Attempt $i..."
+            if kubectl cluster-info; then
+              echo "kubectl cluster-info succeeded"
+              break
+            fi
+            if [ $i -lt 5 ]; then
+              echo "Retrying in 10 seconds..."
+              sleep 10
+            fi
+          done
+          
+          echo "Getting nodes..."
+          kubectl get nodes || echo "Nodes may still be initializing"
+          
+          echo "Getting pods..."
+          kubectl get pods -A || echo "Pods may still be initializing"
         continue-on-error: true
 
       - name: Upload Terraform Plan

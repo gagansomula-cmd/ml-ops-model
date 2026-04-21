@@ -207,3 +207,22 @@ resource "aws_iam_role_policy_attachment" "vpc_cni" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
   role       = aws_iam_role.vpc_cni.name
 }
+
+# Grant GitHubActionsRole access to EKS cluster for automation
+resource "aws_eks_access_entry" "github_actions" {
+  cluster_name      = aws_eks_cluster.main.name
+  principal_arn     = aws_iam_role.github_actions.arn
+  kubernetes_groups = []
+  type              = "STANDARD"
+
+  depends_on = [aws_eks_cluster.main]
+}
+
+resource "aws_eks_access_policy_association" "github_actions" {
+  cluster_name       = aws_eks_cluster.main.name
+  principal_arn      = aws_iam_role.github_actions.arn
+  access_scope_type  = "cluster"
+  policy_arn         = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  depends_on = [aws_eks_access_entry.github_actions]
+}
