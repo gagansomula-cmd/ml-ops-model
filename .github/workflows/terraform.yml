@@ -106,20 +106,28 @@ jobs:
 
       - name: Configure aws-auth ConfigMap
         run: |
-          # Get the GitHub Actions role ARN from outputs
           GITHUB_ROLE_ARN=$(terraform output -raw github_actions_role_arn)
           
           echo "Configuring aws-auth ConfigMap..."
           echo "GitHub Actions Role: $GITHUB_ROLE_ARN"
           
-          # Create aws-auth ConfigMap with GitHub Actions role
-          kubectl create configmap aws-auth \
-            --from-literal=mapRoles='- rolearn: '"$GITHUB_ROLE_ARN"'
-  username: github-actions
-  groups:
-  - system:masters' \
-            -n kube-system \
-            --dry-run=client -o yaml | kubectl apply -f -
+          # Create aws-auth ConfigMap YAML
+          cat > /tmp/aws-auth.yaml <<EOF
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: aws-auth
+            namespace: kube-system
+          data:
+            mapRoles: |
+              - rolearn: $GITHUB_ROLE_ARN
+                username: github-actions
+                groups:
+                - system:masters
+          EOF
+          
+          # Apply the ConfigMap
+          kubectl apply -f /tmp/aws-auth.yaml
           
           # Verify
           kubectl get configmap aws-auth -n kube-system -o yaml
