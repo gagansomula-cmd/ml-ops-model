@@ -68,10 +68,10 @@ jobs:
           echo "Waiting for cluster to be ready..."
           sleep 30
           
-          CLUSTER_NAME=$(terraform output -json cluster_name | jq -r '.' 2>/dev/null || echo "")
-          if [ -z "$CLUSTER_NAME" ] || [ "$CLUSTER_NAME" = "null" ]; then
-            echo "ERROR: cluster_name output not found"
-            terraform output -json
+          CLUSTER_NAME=$(terraform output -raw cluster_name 2>&1)
+          if [[ "$CLUSTER_NAME" == *"Error"* ]] || [ -z "$CLUSTER_NAME" ]; then
+            echo "ERROR: Failed to get cluster_name"
+            terraform output
             exit 1
           fi
           
@@ -89,7 +89,7 @@ jobs:
 
       - name: Update kubeconfig
         run: |
-          CLUSTER_NAME=$(terraform output -json cluster_name | jq -r '.')
+          CLUSTER_NAME=$(terraform output -raw cluster_name)
           echo "Updating kubeconfig for cluster: $CLUSTER_NAME"
           aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1
         continue-on-error: true
