@@ -338,6 +338,11 @@ jobs:
           CLUSTER_NAME=$(terraform output -raw cluster_name)
           echo "Cluster: $CLUSTER_NAME"
           
+          # Reconfigure kubeconfig for this step (each step has separate shell context)
+          echo "Configuring kubectl access..."
+          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1
+          echo "✅ kubeconfig updated"
+          
           # Check if helm chart exists
           if [ -d "../helm/ml-model" ]; then
             echo ""
@@ -422,6 +427,10 @@ jobs:
       - name: Verify ML Model Deployment
         run: |
           echo "=== ML Model Deployment Verification ==="
+          
+          # Reconfigure kubeconfig for this step
+          CLUSTER_NAME=$(terraform output -raw cluster_name)
+          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1
           
           # Wait a moment for deployment to start
           sleep 10
