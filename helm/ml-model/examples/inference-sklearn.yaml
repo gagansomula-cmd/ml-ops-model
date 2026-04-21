@@ -1,6 +1,6 @@
 # Example: Simple Sklearn Model Inference Only
 # Usage: helm install my-model ./helm/ml-model -f examples/inference-sklearn.yaml
-# Note: Update the S3 bucket and model path to match your actual bucket and model location
+# Note: Update the S3 bucket path to match your actual bucket and model location
 
 inferenceService:
   enabled: true
@@ -10,9 +10,8 @@ inferenceService:
   model:
     name: sklearn-model
     format: sklearn
-    # Update this path to your actual S3 bucket and model location
-    # Format: s3://bucket-name/path/to/model.pkl or model.joblib
-    storageUri: "s3://ml-ops-models/linear-regression/model.joblib"
+    # S3 path where the model is stored
+    storageUri: "s3://mlops-trainig-679631209574-us-east-1-an/linear-regression/model.joblib"
   
   resources:
     limits:
@@ -32,11 +31,10 @@ trainingJob:
 
 aws:
   s3:
-    bucket: "ml-ops-models"
+    bucket: "mlops-trainig-679631209574-us-east-1-an"
     region: "us-east-1"
-    # Note: Update the IAM role ARN based on your AWS account
-    # Format: arn:aws:iam::ACCOUNT_ID:role/role-name
-    roleArn: "arn:aws:iam::679631209574:role/ml-ops-cluster-s3-access"
+    # Note: IAM role ARN for S3 access - configured by EKS node role policy
+    roleArn: "arn:aws:iam::679631209574:role/ml-ops-cluster-eks-node-role"
 
 configMap:
   enabled: true

@@ -288,27 +288,48 @@ jobs:
           # Install required Python packages
           python3 -m pip install scikit-learn boto3 -q
           
-          # Prepare the model (convert JSON to sklearn pickle)
+          # Get the S3 bucket name from Terraform outputs
           cd ..
+          ML_BUCKET=$(cd terraform && terraform output -raw ml_models_bucket 2>/dev/null || echo "mlops-trainig-679631209574-us-east-1-an")
+          echo "Using S3 bucket: $ML_BUCKET"
+          
+          echo ""
+          echo "=== Preparing Model ==="
+          
+          # Prepare the model (convert JSON to sklearn pickle)
           python3 prepare_model.py \
             --json-path model_artifacts/linear_regression_model.json \
             --output model_artifacts/model.joblib \
             --upload-s3 \
-            --s3-bucket ml-ops-models \
+            --s3-bucket "$ML_BUCKET" \
             --s3-key linear-regression/model.joblib \
             --region us-east-1
           
-          echo ""
-          echo "✅ Model preparation complete"
+          PREPARE_EXIT=$?
           
-          # Verify the model was created locally
+          if [ $PREPARE_EXIT -eq 0 ]; then
+            echo "✅ Model prepared and uploaded to S3"
+            S3_MODEL="s3://$ML_BUCKET/linear-regression/model.joblib"
+          else
+            echo "⚠️  S3 upload failed, will use local model reference"
+            S3_MODEL="file:///mnt/models/model.joblib"
+          fi
+          
+          echo "Model path for KServe: $S3_MODEL"
+          
+          # Save for next step
+          echo "S3_MODEL=$S3_MODEL" >> $GITHUB_ENV
+          echo "ML_BUCKET=$ML_BUCKET" >> $GITHUB_ENV
+          
+          # Verify the local model file
           if [ -f "model_artifacts/model.joblib" ]; then
             echo "✅ Local model file: model_artifacts/model.joblib"
             ls -lh model_artifacts/model.joblib
           else
-            echo "⚠️  Local model file not found"
+            echo "❌ Local model file not created"
+            exit 1
           fi
-        continue-on-error: true
+        continue-on-error: false
 
       - name: Deploy ML Model with Helm
         run: |
@@ -328,10 +349,11 @@ jobs:
             
             echo ""
             echo "=== Deploying Linear Regression Model via Helm ==="
+            echo "Using model storage path: $S3_MODEL"
+            echo "Using S3 bucket: $ML_BUCKET"
             
-            # Deploy with inline values override to ensure model storage path works
-            # Using s3:// reference which KServe will mount from S3
-            set -x  # Enable debug output to see actual command
+            # Deploy with inline values override
+            set -x  # Enable debug output
             
             helm install sklearn-model ../helm/ml-model \
               --namespace kserve \
@@ -339,8 +361,8 @@ jobs:
               --set inferenceService.enabled=true \
               --set inferenceService.name=sklearn-model \
               --set inferenceService.model.format=sklearn \
-              --set inferenceService.model.storageUri="s3://ml-ops-models/linear-regression/model.joblib" \
-              --set aws.s3.bucket="ml-ops-models" \
+              --set inferenceService.model.storageUri="$S3_MODEL" \
+              --set aws.s3.bucket="$ML_BUCKET" \
               --set aws.s3.region="us-east-1" \
               --set trainingJob.enabled=false \
               --wait=false \

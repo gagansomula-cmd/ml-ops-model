@@ -51,6 +51,18 @@ def upload_to_s3(local_path: str, s3_bucket: str, s3_key: str, region: str = "us
     try:
         s3_client = boto3.client('s3', region_name=region)
         
+        # First verify bucket exists and is accessible
+        try:
+            s3_client.head_bucket(Bucket=s3_bucket)
+            print(f"✅ S3 bucket '{s3_bucket}' is accessible")
+        except s3_client.exceptions.NoSuchBucket:
+            print(f"❌ S3 bucket '{s3_bucket}' does not exist")
+            print(f"   Bucket should be created by Terraform: terraform apply")
+            return False
+        except Exception as e:
+            print(f"⚠️  Cannot access bucket '{s3_bucket}': {e}")
+            return False
+        
         print(f"Uploading {local_path} to s3://{s3_bucket}/{s3_key}")
         s3_client.upload_file(local_path, s3_bucket, s3_key)
         print(f"✅ Model uploaded to: s3://{s3_bucket}/{s3_key}")
@@ -58,8 +70,16 @@ def upload_to_s3(local_path: str, s3_bucket: str, s3_key: str, region: str = "us
         return True
     except Exception as e:
         print(f"❌ Failed to upload to S3: {e}")
-        print("Note: You can upload the model manually:")
-        print(f"  aws s3 cp {local_path} s3://{s3_bucket}/{s3_key}")
+        print("")
+        print("Options to fix:")
+        print("1. Ensure S3 bucket exists (created by Terraform):")
+        print("   cd terraform && terraform apply")
+        print("")
+        print("2. Or upload the model manually:")
+        print(f"   aws s3 cp {local_path} s3://{s3_bucket}/{s3_key}")
+        print("")
+        print("3. Or use a different bucket you have access to:")
+        print(f"   python3 prepare_model.py --s3-bucket your-bucket --upload-s3")
         return False
 
 def main():
@@ -81,7 +101,7 @@ def main():
     )
     parser.add_argument(
         "--s3-bucket",
-        default="ml-ops-models",
+        default="mlops-trainig-679631209574-us-east-1-an",
         help="S3 bucket name"
     )
     parser.add_argument(

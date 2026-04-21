@@ -25,7 +25,7 @@ inferenceService:
     format: sklearn
     # Path to model in S3
     # Format: s3://bucket-name/path/to/model.pkl or model.joblib
-    storageUri: "s3://ml-ops-models/linear-regression/model.joblib"
+    storageUri: "s3://mlops-trainig-679631209574-us-east-1-an/linear-regression/model.joblib"
     # Model artifact path (local or S3)
     artifactPath: "model_artifacts/linear_regression_model.json"
   
@@ -130,10 +130,10 @@ modelRegistry:
 # AWS S3 Configuration
 aws:
   s3:
-    bucket: "ml-ops-models"
+    bucket: "mlops-trainig-679631209574-us-east-1-an"
     region: "us-east-1"
-    # IAM role for S3 access
-    roleArn: "arn:aws:iam::ACCOUNT_ID:role/ml-ops-cluster-s3-access"
+    # IAM role for S3 access (configured by EKS node role policy)
+    roleArn: "arn:aws:iam::679631209574:role/ml-ops-cluster-eks-node-role"
 
 # ConfigMap for model metadata
 configMap:
